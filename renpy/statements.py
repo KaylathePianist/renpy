@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -71,11 +71,22 @@ def register(
         replace the say statement).
 
     `block`
-        When this is False, the statement does not expect a block. When True, it
-        expects a block, but leaves it up to the lexer to parse that block. If the
-        string "script", the block is interpreted as containing one or more
-        Ren'Py script language statements. If the string "possible", the
-        block expect condition is determined by the parse function.
+        This may be one of:
+
+        * False, to indicate that the satement does not expect a block.
+        * True, to indicate that the statement expects a block and will
+          parse that block.
+        * "possible", to indicate that the statement may or may not take
+          a block.
+        * "script" to indicate that the block should be interpreted as a
+          block of Ren'Py script language statements. See `next` for how
+          to implement control flow using this.
+        * "script-possible" is treated like "script" if a block is present,
+          and False otherwise.
+        * "atl" to indicate that the block should be interpreted as an ATL
+          transsform. This is passed as an additional argument to `execute`.
+        * "atl-possible" is treated like "atl" if a block is present, and
+          and False otherwise.
 
     `parse`
         This is a function that takes a Lexer object. This function should parse the
@@ -88,7 +99,8 @@ def register(
 
     `execute`
         This is a function that is called when the statement executes. It is passed a
-        single argument, the object returned from parse.
+        single argument, the object returned from parse. If there is an ATL block,
+        the keyword argument `atl` is passed with an ATL transform.
 
     `execute_init`
         This is a function that is called at init time, at priority 0. It is passed a
@@ -148,8 +160,8 @@ def register(
 
     `translation_strings`
         A function that is called with the parsed block. It's expected to
-        return a list of strings, which are then reported as being available
-        to be translated.
+        return a list of strings or tuples of (string line number, string),
+        which are then reported as being available to be translated.
 
     `force_begin_rollback`
         This should be set to true on statements that are likely to cause the
@@ -255,7 +267,7 @@ def register(
         reachable=reachable,
     )
 
-    if block not in [True, False, "script", "possible" ]:
+    if block not in [True, False, "script", "script-possible", "atl", "atl-possible", "possible" ]:
         raise Exception("Unknown \"block\" argument value: {}".format(block))
 
     # The function that is called to create an ast.UserStatement.
@@ -272,14 +284,26 @@ def register(
             subblock = l.subblock
 
             code_block = None
+            atl = None
 
             if block is False:
                 l.expect_noblock(" ".join(name) + " statement")
             elif block is True:
                 l.expect_block(" ".join(name) + " statement")
+            elif block == "possible":
+                pass
             elif block == "script":
                 l.expect_block(" ".join(name) + " statement")
                 code_block = renpy.parser.parse_block(l.subblock_lexer())
+            elif block == "script-possible":
+                if l.subblock:
+                    code_block = renpy.parser.parse_block(l.subblock_lexer())
+            elif block == "atl":
+                l.expect_block(" ".join(name) + " statement")
+                atl = renpy.atl.parse_atl(l.subblock_lexer())
+            elif block == "atl-possible":
+                if l.subblock:
+                    atl = renpy.atl.parse_atl(l.subblock_lexer())
 
             start_line = l.line
 
@@ -292,6 +316,7 @@ def register(
             rv.translatable = translatable
             rv.translation_relevant = bool(translation_strings)
             rv.code_block = code_block
+            rv.atl = atl
             rv.subparses = l.subparses
             rv.init_priority = init_priority + l.init_offset
 

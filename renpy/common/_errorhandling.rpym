@@ -1,4 +1,4 @@
-﻿# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+﻿# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -49,9 +49,15 @@ init label _errorhandling:
         from store import config
 
         def _scale(n):
+            if renpy.variant("small"):
+                n *= 1.25
+
             return int(min(n * config.screen_width / 960, n * config.screen_height / 720))
 
         _wide = (config.screen_width >  (config.screen_height * 1.5))
+
+        if renpy.variant("small"):
+            _wide = False
 
     style _default:
 
@@ -90,7 +96,7 @@ init label _errorhandling:
         adjust_spacing True
         emoji_font "TwemojiCOLRv0.ttf"
         prefer_emoji True
-        shaper ("harfbuzz" if (not PY2) else "freetype")
+        shaper "harfbuzz"
 
         # Window properties
         background None
@@ -123,6 +129,8 @@ init label _errorhandling:
         # Box properties
         spacing 0
         first_spacing None
+        box_align None
+        box_justify False
         box_layout None
         box_wrap False
         box_wrap_spacing 0
@@ -211,12 +219,18 @@ init label _errorhandling:
         left_padding gui._scale(15)
         ypadding gui._scale(2)
 
+    style _big_radio_button is _button
+
+    style _big_radio_button_text is _button_text:
+        size gui._scale(26)
+        selected_color "#404040"
+
     style _label is _default:
-        top_margin gui._scale(10)
-        bottom_margin gui._scale(15)
+        top_margin gui._scale(15)
+        bottom_margin gui._scale(5)
 
     style _label_text is _default:
-        size gui._scale(30)
+        size gui._scale(26)
         kerning -1
 
     style _bar is _default:
@@ -255,6 +269,13 @@ init label _errorhandling:
         color "#468"
         hover_color Color("#24C")
 
+    style _image_error is _default:
+        xalign 0.5
+        yalign 0.0
+        color "#fcc"
+        outlines [ (1, "#000", 0, 0) ]
+        size gui._scale(20)
+
     return
 
 # Invokes _errorhanding when this is first loaded.
@@ -269,11 +290,7 @@ init python:
 
     def _error_hyperlink_function(target):
         if target.startswith("http:") or target.startswith("https:"):
-            try:
-                import webbrowser
-                webbrowser.open(target)
-            except Exception:
-                pass
+            renpy.open_url(target)
 
         if target.startswith("edit:"):
             prefix, line, filename = target.split(":", 2)
@@ -470,78 +487,143 @@ init python:
     def _(s):
         return s
 
-    def __limit_lines(lines):
+
+    class _ExceptionPrintContext(renpy.renpy.error.TextIOExceptionPrintContext):
+        BRIGHT_RED = "#e00000"
+        RED = "#800000"
+
+        def __init__(self, *, filter_private: bool):
+            import io
+            super().__init__(
+                io.StringIO(),
+                filter_private=filter_private,
+                max_group_width=5,
+                max_group_depth=1,
+            )
+
+        def _escape_limit(self, s: str):
+            s = s.replace("{", "{{")
+            if len(s) > 400:
+                s = s[:200] + " ... " + s[-200:]
+
+            return s
+
+        def _big(self, text: str):
+            return f"{{size=+2}}{text}{{/size}}"
+
+        def _color(self, text: str, color: str):
+            return f"{{color={color}}}{text}{{/color}}"
+
+        def location(self, filename, lineno, name):
+            self._print(
+                f'File {{a=edit:{lineno}:{filename}}}"{filename}", '
+                f'line {lineno}{{/a}}, '
+                f'in {name}')
+
+        def source_carets(self, line, carets):
+            if carets is None:
+                self._print(self._escape_limit(line))
+                return
+
+            from itertools import groupby
+
+            zipped = zip(line, carets, strict=True)
+            colorized_line_parts: list[str] = []
+            for color, group in groupby(zipped, key=lambda x: x[1]):
+                caret_group = list(group)
+                line_part = "".join(char for char, _ in caret_group)
+                line_part = self._escape_limit(line_part)
+                if color == "^":
+                    line_part = self._color(line_part, self.BRIGHT_RED)
+                elif color == "~":
+                    line_part = self._color(line_part, self.RED)
+
+                colorized_line_parts.append(line_part)
+
+            self._print("".join(colorized_line_parts))
+
+        def string(self, text: str):
+            self._print(self._escape_limit(text))
+
+        def final_exception_line(self, exc_type: str, text: str | None):
+            exc_type = self._escape_limit(exc_type)
+            exc_type = self._big(exc_type)
+            if text is None:
+                self._print(exc_type)
+            else:
+                text = self._escape_limit(text)
+                self._print(f"{exc_type}: {text}")
+
+
+    def __simple_traceback(traceback_exception):
+        return traceback_exception.format(_ExceptionPrintContext(filter_private=True))
+
+    def __full_traceback(traceback_exception):
+        return traceback_exception.format(_ExceptionPrintContext(filter_private=False))
+
+    def __format_parse_errors(errors: list[str]):
         """
-        Limit the number of lines shown.
+        Takes list of ParseError messages and transforms it
+        to string of sane length to be used as child of viewport.
         """
 
-        if len(lines) < 401:
-            return lines
-
-        return lines[:200] + [ "..." ] + lines[-200:]
-
-    # This function is responsible for taking a traceback, and converting
-    # it to a string that can be shown with text.
-    def __format_traceback(s):
         import re
 
-        lines = [ i.replace("{", "{{") for i in s.split("\n") ]
-        lines = __limit_lines(lines)
+        rv = []
+        rv_len = 0
+        for error in errors:
+            lines = error.split("\n")
 
-        rv = [ ("{size=%d}" % gui._scale(22)) + lines[0] + "{/size}" ]
+            # Do not count first line in total to include those as much as
+            # possible.
+            rv.append(re.sub(
+                r'(File "(.*)", line (\d+))',
+                r'{a=edit:\3:\2}\1{/a}',
+                lines.pop(0).replace("{", "{{")))
 
-        for i in lines[1:]:
-            i = re.sub(r'(File "(.*)", line (\d+))', r'{a=edit:\3:\2}\1{/a}', i)
-            rv.append("  " + i)
+            error_rv = []
+            error_len = 0
+            for i, line in enumerate(lines):
+                # In case we have single insanely lengthy single error.
+                error_len += len(line)
+                if error_len > 65536:
+                    error_rv.clear()
+                    break
 
-        rv[1] = "{vspace=5}" + rv[1]
+                if set(line.strip()) == {"^"}:
+                    idx = line.find("^")
+                    count = line.count("^", idx)
+
+                    prev_line = lines[i - 1]
+
+                    line = prev_line[:idx].replace("{", "{{")
+
+                    if count == 1:
+                        if len(prev_line) < idx + count:
+                            mark = "\u2190"
+                        else:
+                            mark = "\u2192"
+                            count = 0
+                    else:
+                        mark = prev_line[idx:idx + count]
+                    line += "{b}{color=#a00}"
+                    line += mark
+                    line += "{/color}{/b}"
+                    line += prev_line[idx + count:].replace("{", "{{")
+
+                    error_rv[-1] = line
+                    continue
+
+                error_rv.append(line.replace("{", "{{"))
+
+            rv_len += error_len
+            if rv_len > 1048576:
+                break
+
+            rv.extend(error_rv)
+            rv.append("")
 
         return "\n".join(rv)
-
-    def __format_parse_errors(s):
-        import re
-
-        rv = ""
-
-        lines = s.split("\n")
-        lines = __limit_lines(lines)
-        len_lines = len(lines)
-
-        ln = 0
-
-        while ln < len_lines:
-            line = lines[ln]
-            ln += 1
-
-            if ln < len_lines and lines[ln].endswith("^"):
-                highlight = len(lines[ln]) - 1
-                ln += 1
-            else:
-                highlight = -1
-
-            pos = 0
-
-            for c in line:
-                if pos == highlight:
-                    rv += u"{color=#c00}\u2192{/color}"
-                    highlight = -1
-
-                pos += 1
-
-                if c == "{":
-                    rv += "{{"
-                else:
-                    rv += c
-
-            if highlight > 0:
-                rv += u"{color=#c00}\u2190{/color}"
-
-            rv += "\n"
-
-
-        rv = re.sub(r'(File "(.*)", line (\d+))', r'{a=edit:\3:\2}\1{/a}', rv)
-
-        return rv
 
     class _EditFile(Action):
         def __init__(self, filename, line=1):
@@ -550,7 +632,15 @@ init python:
 
         def __call__(self):
             try:
-                renpy.launch_editor([ self.filename ], self.line, transient=1)
+                if renpy.android:
+                    try:
+                        import jnius
+                        activity = jnius.autoclass("org.renpy.android.PythonSDLActivity")
+                        activity.mActivity.openEditor(renpy.exports.fsencode(self.filename))
+                    except Exception:
+                        traceback.print_exc()
+                else:
+                    renpy.launch_editor([ self.filename ], self.line, transient=1)
             except Exception:
                 pass
 
@@ -659,9 +749,10 @@ init python:
 # added arguments.
 screen _exception_actions(traceback_fn, tt, *args):
 
-    textbutton _("Open"):
-        action _EditFile(traceback_fn)
-        hovered tt.action(_("Opens the traceback.txt file in a text editor."))
+    if not any([renpy.ios, renpy.emscripten]):
+        textbutton _("Open"):
+            action _EditFile(traceback_fn)
+            hovered tt.action(_("Opens the traceback.txt file in a text editor."))
 
     textbutton _("Copy BBCode"):
         action _CopyFile(traceback_fn, u"[code]\n{}[/code]\n")
@@ -686,11 +777,12 @@ python early in _errorhandling:
 # The screen that is used for error handling.
 screen _exception:
     modal True
+    layer config.interface_layer
     zorder 1090
 
     default tt = __Tooltip("")
-    default fmt_short = __format_traceback(short)
-    default fmt_full = __format_traceback(full)
+    default fmt_short = __simple_traceback(traceback_exception)
+    default fmt_full = __full_traceback(traceback_exception)
 
     frame:
         style_group ""
@@ -701,7 +793,8 @@ screen _exception:
         side "c r":
             xfill True
             label _("An exception has occurred.") text_size gui._scale(40)
-            text "{size=-3}[config.version!q]\n[renpy.version_only!q]\n[renpy.platform!q]{/size}" textalign 1.0 yalign 0.5
+            text "{size=-3}[config.version!q]\n[renpy.version_only!q]\n[renpy.platform!q]{/size}":
+                textalign 1.0 yalign 0.5
 
         viewport:
             id "viewport"
@@ -712,7 +805,10 @@ screen _exception:
 
             has vbox
 
+            text "[renpy.game.exception_info]" size gui._scale(22)
             text fmt_short substitute False
+
+            text "Full traceback:" size gui._scale(22)
             text fmt_full substitute False
 
         hbox:
@@ -747,7 +843,7 @@ screen _exception:
                                 action __EnterConsole()
                                 hovered tt.action(_("Opens a console to allow debugging the problem."))
 
-                    use _exception_actions(traceback_fn, tt)
+                    use _exception_actions(traceback_exception.traceback_fn, tt)
 
                 # Tooltip.
                 text tt.value
@@ -766,8 +862,9 @@ screen _exception:
     key "console" action __EnterConsole()
 
 # The screen that is used for error handling.
-screen _parse_errors:
+screen _parse_errors(errors, error_fn, reload_action):
     modal True
+    layer config.interface_layer
     zorder 1090
 
     default tt = __Tooltip("")

@@ -1,4 +1,4 @@
-﻿# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+﻿# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -138,6 +138,26 @@ init 1 python in editor:
             # If the editor is considered deprecated for use with Ren'Py.
             self.deprecated = deprecated
 
+
+    def vscode_path():
+        """
+        Gets the path to VS Code for this platform.
+        """
+
+        if renpy.windows:
+            return os.path.join(config.renpy_base, "vscode/VSCode-win32-x64")
+        elif renpy.macintosh:
+            return os.path.join(config.renpy_base, "vscode/Visual Studio Code.app")
+        else:
+            if renpy.arch == "aarch64":
+                arch = "arm64"
+            elif renpy.arch == "armv7l":
+                arch = "arm"
+            else:
+                arch = "x64"
+
+            return os.path.join(config.renpy_base, "vscode/VSCode-linux-" + arch)
+
     def fancy_scan_editors():
         """
         Creates the list of FancyEditorInfo objects.
@@ -155,19 +175,7 @@ init 1 python in editor:
         AD1 = _("A modern editor with many extensions including advanced Ren'Py integration.")
         AD2 = _("A modern editor with many extensions including advanced Ren'Py integration.\n{a=jump:reinstall_vscode}Upgrade Visual Studio Code to the latest version.{/a}")
 
-        if renpy.windows:
-            installed = os.path.exists(os.path.join(config.renpy_base, "vscode/VSCode-win32-x64"))
-        elif renpy.macintosh:
-            installed = os.path.exists(os.path.join(config.renpy_base, "vscode/Visual Studio Code.app"))
-        else:
-            if renpy.arch == "aarch64":
-                arch = "arm64"
-            elif renpy.arch == "armv7l":
-                arch = "arm"
-            else:
-                arch = "x64"
-
-            installed = os.path.exists(os.path.join(config.renpy_base, "vscode/VSCode-linux-" + arch))
+        installed = os.path.exists(vscode_path())
 
         e = FancyEditorInfo(
             0,
@@ -217,7 +225,7 @@ init 1 python in editor:
             _("JEdit is deprecated, using another editor is recommended."),
             "jedit",
             _("1.8 MB download required."),
-            _("This may have occured because Java is not installed on this system."),
+            _("This may have occurred because Java is not installed on this system."),
             deprecated=True,
             )
 
@@ -236,9 +244,6 @@ init 1 python in editor:
             _("System Editor"),
             _("Invokes the editor your operating system has associated with .rpy files."),
             None))
-
-
-
 
         for k in editors:
             if k in [ "Visual Studio Code", "Visual Studio Code (System)", "Atom", "jEdit", "System Editor", "None" ]:
@@ -406,7 +411,7 @@ init 1 python in editor:
 
             except Exception as e:
                 exception = traceback.format_exception_only(type(e), e)[-1][:-1]
-                renpy.invoke_in_new_context(interface.error, _("An exception occured while launching the text editor:\n[exception!q]"), error_message, exception=exception)
+                renpy.invoke_in_new_context(interface.error, _("An exception occurred while launching the text editor:\n[exception!q]"), error_message, exception=exception)
 
     class EditAbsolute(Action):
         def __init__(self, filename, line=None, check=False):
@@ -452,7 +457,7 @@ init 1 python in editor:
 
             except Exception as e:
                 exception = traceback.format_exception_only(type(e), e)[-1][:-1]
-                renpy.invoke_in_new_context(interface.error, _("An exception occured while launching the text editor:\n[exception!q]"), error_message, exception=exception)
+                renpy.invoke_in_new_context(interface.error, _("An exception occurred while launching the text editor:\n[exception!q]"), error_message, exception=exception)
 
 
     class EditAll(Action):
@@ -490,7 +495,7 @@ init 1 python in editor:
 
             except Exception as e:
                 exception = traceback.format_exception_only(type(e), e)[-1][:-1]
-                renpy.invoke_in_new_context(interface.error, _("An exception occured while launching the text editor:\n[exception!q]"), error_message, exception=exception)
+                renpy.invoke_in_new_context(interface.error, _("An exception occurred while launching the text editor:\n[exception!q]"), error_message, exception=exception)
 
 
     class EditProject(Action):
@@ -513,7 +518,7 @@ init 1 python in editor:
 
             except Exception as e:
                 exception = traceback.format_exception_only(type(e), e)[-1][:-1]
-                renpy.invoke_in_new_context(interface.error, _("An exception occured while launching the text editor:\n[exception!q]"), error_message, exception=exception)
+                renpy.invoke_in_new_context(interface.error, _("An exception occurred while launching the text editor:\n[exception!q]"), error_message, exception=exception)
 
 
     def CanEditProject():
@@ -526,6 +531,27 @@ init 1 python in editor:
             return e.has_projects
         except Exception:
             return False
+
+
+    def check_old_vscode_extension():
+        """
+        Check to see if the old version of the Ren'Py vscode extension is installed.
+        """
+
+        extensions = os.path.join(vscode_path(), "data", "extensions")
+
+        if not os.path.isdir(extensions):
+            return False
+
+        for i in util.listdir(extensions):
+            if i.lower().startswith("renpy.language-renpy-"):
+                return False
+
+        for i in util.listdir(extensions):
+            if i.lower().startswith("luquedaniel.languague-renpy-"):
+                return True
+
+        return False
 
 
 screen editor:
@@ -590,6 +616,13 @@ label reinstall_vscode:
 
     jump editor_preference
 
+label upgrade_vscode_extension:
+    python hide:
+        manifest = "vscode"
+        renpy.invoke_in_new_context(installer.manifest, "https://www.renpy.org/extensions/vscode/upgrade_extension.py", renpy=True)
+
+    jump post_extension_check
+
 label editor_preference:
     call screen editor
     jump preferences
@@ -612,7 +645,7 @@ label editor_check:
             ], "select")
 
     else:
-        jump post_editor_check
+        jump post_atom_check
 
     if result == "select":
         $ renpy.pop_call()
@@ -621,4 +654,28 @@ label editor_check:
     elif result == "block":
         $ persistent.ignore_obsolete_editor.add(persistent.editor)
 
+
+label post_atom_check:
+
+    if "luquedaniel.languague-renpy" in persistent.ignore_obsolete_editor:
+        jump post_extension_check
+
+    if persistent.editor != "Visual Studio Code":
+        jump post_extension_check
+
+    if editor.check_old_vscode_extension():
+        $ result = interface.choice(
+            _("You are using an old version of the Ren'Py Language support for Visual Studio Code. Would you like to upgrade?"), [
+                ( "upgrade", _("Upgrade.")),
+                ( "ignore", _("Ignore until next launch.")),
+                ( "block", _("Do not ask again.")),
+            ], "select")
+
+        if result == "upgrade":
+            jump upgrade_vscode_extension
+
+        elif result == "block":
+            $ persistent.ignore_obsolete_editor.add("luquedaniel.languague-renpy")
+
+label post_extension_check:
     jump post_editor_check

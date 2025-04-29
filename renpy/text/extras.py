@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -56,6 +56,7 @@ text_tags = dict(
     noalt=True,
     nw=False,
     s=True,
+    shader=True,
     rt=True,
     rb=True,
     k=True,
@@ -161,6 +162,7 @@ def filter_text_tags(s, allow=None, deny=None):
             rv.append("\n")
         elif tokentype == TAG:
             kind = text.partition("=")[0]
+            kind = kind.partition(":")[0]
 
             if kind and (kind[0] == "/"):
                 kind = kind[1:]
@@ -313,7 +315,7 @@ def thaic90(s):
     """
     Reencodes `s` to the Thai C90 encoding, which is used by Thai-specific
     fonts to combine base characters, upper vowels, lower vowls, and tone marks
-    into singe precomposed characters in thje unicode private use area.
+    into singe precomposed characters in the unicode private use area.
     """
 
 

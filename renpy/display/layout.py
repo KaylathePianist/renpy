@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -31,11 +31,7 @@ import renpy
 from renpy.display.render import render, Render
 
 
-if PY2:
-    def compute_raw(value, room):
-        return renpy.display.core.absolute.compute_raw(value, room)
-else:
-    compute_raw = renpy.display.core.absolute.compute_raw
+compute_raw = renpy.display.core.absolute.compute_raw
 
 
 def xyminimums(style, width, height):
@@ -132,9 +128,6 @@ class Container(renpy.display.displayable.Displayable):
         super(Container, self).__init__(**properties)
 
     def set_transform_event(self, event):
-        """
-        Sets the transform event of this displayable to event.
-        """
 
         super(Container, self).set_transform_event(event)
 
@@ -434,11 +427,15 @@ class Grid(Container):
     """
 
     allow_underfull = None
+    gridmap = None
 
     def __init__(self, cols, rows, padding=None,
                  transpose=False,
                  style='grid',
                  allow_underfull=None,
+                 *,
+                 right_to_left=False,
+                 bottom_to_top=False,
                  **properties):
         """
         @param cols: The number of columns in this widget.
@@ -449,6 +446,12 @@ class Grid(Container):
 
         @params allow_underfull: Controls if grid may be underfull.
         If None - uses config.allow_underfull_grids.
+
+        @params right_to_left: True if cells should be filled
+        right to left.
+
+        @params bottom_to_top: True if cells should be filled
+        bottom to top.
         """
 
         if padding is not None:
@@ -464,6 +467,9 @@ class Grid(Container):
 
         self.transpose = transpose
         self.allow_underfull = allow_underfull
+
+        self.right_to_left = right_to_left
+        self.bottom_to_top = bottom_to_top
 
     def render(self, width, height, st, at):
 
@@ -488,14 +494,12 @@ class Grid(Container):
         cols = self.cols
         rows = self.rows
 
-        if self.transpose:
-            children = [ ]
-            for y in range(rows):
-                for x in range(cols):
-                    children.append(self.children[y + x * rows])
+        # Generates a gridmap list containing (col, row) tuples of intended position
+        # for each child.
 
-        else:
-            children = self.children
+        gridmap = self.gridmap
+        if gridmap is None:
+            gridmap = self.gridmap = self.generate_gridmap()
 
         # Now, start the actual rendering.
 
@@ -507,8 +511,8 @@ class Grid(Container):
         if self.style.yfill:
             renheight = (height - (rows - 1) * yspacing - top_margin - bottom_margin) // rows
 
-        renders = [ render(i, renwidth, renheight, st, at) for i in children ]
-        sizes = [ i.get_size() for i in renders ]
+        renders = [render(child, renwidth, renheight, st, at) for child in self.children]
+        sizes = [r.get_size() for r in renders]
 
         cwidth = 0
         cheight = 0
@@ -528,27 +532,19 @@ class Grid(Container):
 
         rv = renpy.display.render.Render(width, height)
 
-        offsets = [ ]
+        # List of offsets in the same order as self.children
+        self.offsets = []
 
-        for y in range(0, rows):
-            for x in range(0, cols):
+        for i, child in enumerate(self.children):
+            col, row = gridmap[i]
 
-                child = children[ x + y * cols ]
-                surf = renders[x + y * cols]
+            surf = renders[i]
 
-                xpos = x * (cwidth + xspacing) + left_margin
-                ypos = y * (cheight + yspacing) + top_margin
+            xpos = col * (cwidth + xspacing) + left_margin
+            ypos = row * (cheight + yspacing) + top_margin
 
-                offset = child.place(rv, xpos, ypos, cwidth, cheight, surf)
-                offsets.append(offset)
-
-        if self.transpose:
-            self.offsets = [ ]
-            for x in range(cols):
-                for y in range(rows):
-                    self.offsets.append(offsets[y * cols + x])
-        else:
-            self.offsets = offsets
+            offset = child.place(rv, xpos, ypos, cwidth, cheight, surf)
+            self.offsets.append(offset)
 
         return rv
 
@@ -579,6 +575,22 @@ class Grid(Container):
 
         for _ in range(delta):
             self.add(null)
+
+    def generate_gridmap(self):
+        row_order = range(self.rows)
+        if self.bottom_to_top:
+            row_order = row_order[::-1]
+
+        col_order = range(self.cols)
+        if self.right_to_left:
+            col_order = col_order[::-1]
+
+        if self.transpose:
+            intended_order = [(col, row) for col in col_order for row in row_order]
+        else:
+            intended_order = [(col, row) for row in row_order for col in col_order]
+
+        return intended_order
 
 
 class IgnoreLayers(Exception):
@@ -835,6 +847,9 @@ class MultiBox(Container):
         if miny is not None:
             height = max(height, compute_raw(miny, height))
 
+        min_line_x = 0
+        min_line_y = 0
+
         if self.first and adjust_times:
             self.update_times()
 
@@ -968,6 +983,15 @@ class MultiBox(Container):
         xminimum = self.style.xminimum
         yminimum = self.style.yminimum
 
+        box_justify = self.style.box_justify
+        box_align = self.style.box_align
+
+        if box_align is None:
+            box_align = 0
+            use_box_align = False
+        else:
+            use_box_align = True
+
         # The shared height and width of the current line. The line_height must
         # be 0 for a vertical box, and the line_width must be 0 for a horizontal
         # box.
@@ -979,10 +1003,20 @@ class MultiBox(Container):
         if self.style.box_reverse and renpy.config.simple_box_reverse:
             children.reverse()
             spacings.reverse()
+        elif self.style.box_reverse and not renpy.config.box_reverse_align:
+            box_align = 1.0 - box_align
 
         # a list of (child, x, y, w, h, surf) tuples that are turned into
         # calls to child.place().
         placements = [ ]
+
+        # A listof placements per line.
+        line_placements = [ ]
+
+        # The width and height of each line.
+        line_widths = [ ]
+        line_heights = [ ]
+        line_use_justify = [ ]
 
         # The maximum x and y.
         maxx = 0
@@ -992,14 +1026,20 @@ class MultiBox(Container):
         minx = 0
         miny = 0
 
-        def layout_line(line, xfill, yfill):
+        def layout_line(line, xfill, yfill, use_justify):
             """
             Lays out a single line.
 
             `line` a list of (child, x, y, surf) tuples.
             `xfill` the amount of space to add in the x direction.
             `yfill` the amount of space to add in the y direction.
+            `use_justify` if True, the line should be justified.
             """
+
+            placements = [ ]
+
+            line_max_x = 0
+            line_max_y = 0
 
             xfill = max(0, xfill)
             yfill = max(0, yfill)
@@ -1009,19 +1049,16 @@ class MultiBox(Container):
             else:
                 line_count = len(line)
 
-            if line_count > 0:
-                xperchild = xfill // line_count
-                yperchild = yfill // line_count
-            else:
+            if use_justify or use_box_align or line_count == 0:
                 xperchild = 0
                 yperchild = 0
-
-            maxxout = maxx
-            maxyout = maxy
+            else:
+                xperchild = xfill / line_count
+                yperchild = yfill / line_count
 
             i = 0
 
-            for child, x, y, surf in line:
+            for child, padding, x, y, surf in line:
 
                 sw, sh = surf.get_size()
                 sw = max(line_width, sw)
@@ -1029,20 +1066,29 @@ class MultiBox(Container):
 
                 if (not child._box_skip) or (not renpy.config.box_skip):
 
-                    x += i * xperchild
-                    y += i * yperchild
+                    x += int(i * xperchild)
+                    y += int(i * yperchild)
 
                     sw += xperchild
                     sh += yperchild
+
+                    x += padding[0]
+                    y += padding[1]
 
                     i += 1
 
                 placements.append((child, x, y, sw, sh, surf))
 
-                maxxout = max(maxxout, x + sw)
-                maxyout = max(maxyout, y + sh)
+                line_max_x = x + sw
+                line_max_y = y + sh
 
-            return maxxout, maxyout
+            line_widths.append(line_max_x)
+            line_heights.append(line_max_y)
+            line_use_justify.append(use_justify)
+
+            line_placements.append(placements)
+
+            return ( max(maxx, line_max_x), max(maxy, line_max_y) )
 
         x = 0
         y = 0
@@ -1057,6 +1103,9 @@ class MultiBox(Container):
             line_height = 0
             line = [ ]
             remwidth = width
+            next_padding = 0
+            lines = [ ]
+            first_line = True
 
             if xfill:
                 target_width = width
@@ -1065,32 +1114,42 @@ class MultiBox(Container):
 
             for d, padding, cst, cat in zip(children, spacings, csts, cats):
 
+                use_justify = (box_justify in (True, "all")
+                    or (box_justify == "first" and first_line))
+
                 if d._box_skip and renpy.config.box_skip:
                     padding = 0
 
                 if box_wrap:
                     rw = width
                 else:
-                    rw = remwidth
+                    rw = remwidth - next_padding
 
                 surf = render(d, rw, height - y, cst, cat)
                 sw, sh = surf.get_size()
 
-                if box_wrap and remwidth - sw - padding < 0 and line:
-                    maxx, maxy = layout_line(line, (target_width - x), 0)
+                if box_wrap and (remwidth - sw - next_padding) < 0 and line:
+                    maxx, maxy = layout_line(line, (target_width - x), 0, use_justify)
 
                     y += line_height + box_wrap_spacing
                     x = 0
                     line_height = 0
                     remwidth = width
                     line = [ ]
+                    first_line = False
+                    next_padding = 0
 
-                line.append((d, x, y, surf))
+                    surf = render(d, rw, height - y, cst, cat)
+                    sw, sh = surf.get_size()
+
+                line.append((d, (next_padding, 0), x, y, surf))
                 line_height = max(line_height, sh)
-                x += sw + padding
-                remwidth -= (sw + padding)
+                x += sw + next_padding
+                remwidth -= (sw + next_padding)
+                next_padding = padding
 
-            maxx, maxy = layout_line(line, (target_width - x) if (not box_wrap) else 0, 0)
+            use_justify = (box_justify == "all")
+            maxx, maxy = layout_line(line, (target_width - x), 0, use_justify)
 
         elif layout == "vertical":
 
@@ -1102,6 +1161,9 @@ class MultiBox(Container):
             line_width = 0
             line = [ ]
             remheight = height
+            next_padding = 0
+            lines = [ ]
+            first_line = True
 
             if yfill:
                 target_height = height
@@ -1110,55 +1172,103 @@ class MultiBox(Container):
 
             for d, padding, cst, cat in zip(children, spacings, csts, cats):
 
+                use_justify = (box_justify in (True, "all")
+                    or (box_justify == "first" and first_line))
+
                 if d._box_skip and renpy.config.box_skip:
                     padding = 0
 
                 if box_wrap:
                     rh = height
                 else:
-                    rh = remheight
+                    rh = remheight - next_padding
 
                 surf = render(d, width - x, rh, cst, cat)
                 sw, sh = surf.get_size()
 
-                if box_wrap and remheight - sh - padding < 0:
-                    maxx, maxy = layout_line(line, 0, (target_height - y))
+                if box_wrap and (remheight - sh - next_padding) < 0 and line:
+                    maxx, maxy  = layout_line(line, 0, (target_height - y), use_justify)
 
                     x += line_width + box_wrap_spacing
                     y = 0
                     line_width = 0
                     remheight = height
                     line = [ ]
+                    first_line = False
+                    next_padding = 0
 
-                line.append((d, x, y, surf))
+                    surf = render(d, width - x, rh, cst, cat)
+                    sw, sh = surf.get_size()
+
+                line.append((d, (0, next_padding), x, y, surf))
                 line_width = max(line_width, sw)
-                y += sh + padding
-                remheight -= (sh + padding)
+                y += sh + next_padding
+                remheight -= (sh + next_padding)
+                next_padding = padding
 
-            maxx, maxy = layout_line(line, 0, (target_height - y) if (not box_wrap) else 0)
+            use_justify = (box_justify == "all")
+            maxx, maxy = layout_line(line, 0, (target_height - y), use_justify)
 
         else:
             raise Exception("Unknown box layout: %r" % layout)
 
-        # Back to the common for vertical and horizontal.
-
+        # Determine the size.
         if not xfill:
             width = max(xminimum, maxx)
 
         if not yfill:
             height = max(yminimum, maxy)
 
+        # Apply box_align and box_justify to the lines.
+        if not(use_justify or use_box_align):
+            placements = [ i for line in line_placements for i in line ]
+
+        elif layout == "horizontal":
+            for line, line_width, use_justify in zip(line_placements, line_widths, line_use_justify):
+                remaining = width - line_width
+                if use_justify and len(line) > 1:
+                    justify_per_child = remaining / (len(line) - 1)
+                    align_offset = 0
+                else:
+                    justify_per_child = 0
+                    align_offset = int(remaining * box_align)
+
+                i = 0
+                for (child, x, y, w, h, surf) in line:
+                    x += align_offset + int(i * justify_per_child)
+                    placements.append((child, x, y, w, h, surf))
+                    i += 1
+
+        else:
+            for line, line_height, use_justify in zip(line_placements, line_heights, line_use_justify):
+                remaining = height - line_height
+                if use_justify and len(line) > 1:
+                    justify_per_child = remaining / (len(line) - 1)
+                    align_offset = 0
+                else:
+                    justify_per_child = 0
+                    align_offset = int(remaining * box_align)
+
+                i = 0
+                for (child, x, y, w, h, surf) in line:
+                    y += align_offset + int(i * justify_per_child)
+                    placements.append((child, x, y, w, h, surf))
+                    i += 1
+
+        # Handle box reverse.
         if self.style.box_reverse and not renpy.config.simple_box_reverse:
             new_placements = [ ]
 
             for child, x, y, w, h, surf in placements:
-                if layout == "vertical":
-                    new_placements.append((child, x, height - y - h, w, h, surf))
-                else:
+                if layout == "horizontal":
                     new_placements.append((child, width - x - w, y, w, h, surf))
+                else:
+                    new_placements.append((child, x, height - y - h, w, h, surf))
 
             placements = new_placements
 
+
+        # Place the children.
         rv = renpy.display.render.Render(width, height)
 
         if self.style.order_reverse ^ (self.style.box_reverse and renpy.config.simple_box_reverse):
@@ -1357,6 +1467,7 @@ class Window(Container):
 
             self.current_child = child
 
+
         # Render the child.
         surf = render(child,
                       width - cxmargin - cxpadding,
@@ -1369,9 +1480,13 @@ class Window(Container):
 
         if not style.xfill:
             width = max(cxmargin + cxpadding + sw, xminimum)
+        elif not renpy.config.fill_shrinks_frame:
+            width = max(cxmargin + cxpadding + sw, width, xminimum)
 
         if not style.yfill:
             height = max(cymargin + cypadding + sh, yminimum)
+        elif not renpy.config.fill_shrinks_frame:
+            height = max(cymargin + cypadding + sh, height, yminimum)
 
         if renpy.config.enforce_window_max_size:
 
@@ -1500,8 +1615,8 @@ class DynamicDisplayable(renpy.display.displayable.Displayable):
         super(DynamicDisplayable, self).__init__()
         self.child = None
 
-        if isinstance(function, basestring):
-            args = (function,)
+        if isinstance(function, str):
+            args = (function, )
             kwargs = { }
             function = dynamic_displayable_compat
 
@@ -1605,6 +1720,12 @@ def condition_switch_pick(switch):
         if cond is None:
             return d
 
+        if cond is True:
+            return d
+
+        if cond is False:
+            continue
+
         if cond in cond_cache:
             code = cond_cache[cond]
         else:
@@ -1675,7 +1796,9 @@ def ConditionSwitch(*args, **kwargs):
 
     for cond, d in zip(args[0::2], args[1::2]):
 
-        if cond not in cond_cache:
+        if cond is True or cond is False or cond is None:
+            code = cond
+        elif cond not in cond_cache:
             code = renpy.python.py_compile(cond, 'eval')
             cond_cache[cond] = code
 
@@ -1791,7 +1914,7 @@ class Side(Container):
 
         super(Side, self).__init__(style=style, **properties)
 
-        if isinstance(positions, basestring):
+        if isinstance(positions, str):
             positions = positions.split()
 
         seen = set()
@@ -2254,13 +2377,30 @@ class AlphaMask(Container):
 
     invert = False
 
+    _duplicatable = False
+
     def __init__(self, child, mask, invert=False, **properties):
         super(AlphaMask, self).__init__(**properties)
 
+
         self.mask = renpy.easy.displayable(mask)
+        self._duplicatable = self.mask._duplicatable
+
         self.add(self.mask)
         self.add(child)
         self.invert = invert
+
+    def _duplicate(self, args):
+        rv = super(AlphaMask, self)._duplicate(args)
+
+        if (rv is not self) and rv.mask._duplicatable:
+            rv.mask = self.mask._duplicate(args)
+
+        return rv
+
+    def _unique(self):
+        super(AlphaMask, self)._unique()
+        self.mask._unique()
 
     def visit(self):
         return [ self.mask, self.child ]
@@ -2300,10 +2440,17 @@ class NearRect(Container):
     `rect`
         The rectangle to place the child near.
 
+    `focus`
+        Passed to `GetFocusRect`. The special name "tooltop" will retrieve the
+        rect of last displayable to set a tooltip. If present, overrides `rect`.
+
     `preferred_side`
         One of "left", "top", "right", "bottom" to prefer that position for
         the nearrect. If there is not room on one side, the opposite side is
         used. By default, the preferred side is "bottom".
+
+    `prefer_top`
+        Deprecated. Equivalent to passing `preferred_side="top"`
 
     `invert_offsets`
         If True and there isn't enough space on the preferred side, multiply the

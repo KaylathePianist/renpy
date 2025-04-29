@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -277,6 +277,12 @@ class StdioRedirector(object):
                     pass
 
         self.buffer = lines[-1]
+
+    def fileno(self):
+        return self.real_file.fileno()
+
+    def isatty(self):
+        return self.real_file.isatty()
 
     def writelines(self, lines):
         for i in lines:

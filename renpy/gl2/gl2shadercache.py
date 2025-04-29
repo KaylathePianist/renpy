@@ -1,3 +1,24 @@
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
+#
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 from __future__ import print_function
 import re
 import io
@@ -45,7 +66,7 @@ def register_shader(name, **kwargs):
     with lower priority numbers inserted before higher priority numbers.
     """
 
-    ShaderPart(name, **kwargs)
+    return ShaderPart(name, **kwargs)
 
 
 class ShaderPart(object):
@@ -54,7 +75,7 @@ class ShaderPart(object):
 
     """
 
-    def __init__(self, name, variables="", vertex_functions="", fragment_functions="", **kwargs):
+    def __init__(self, name, variables="", vertex_functions="", fragment_functions="", private_uniforms=False, **kwargs):
 
         if not re.match(r'^[\w\.]+$', name):
             raise Exception("The shader name {!r} contains an invalid character. Shader names are limited to ASCII alphanumeric characters, _, and .".format(name))
@@ -73,13 +94,20 @@ class ShaderPart(object):
         self.vertex_variables = set()
         self.fragment_variables = set()
 
+        # A map from variable name to type.
+        self.variable_types = { }
+
         # A sets of variable names used in the vertex and fragments shader.
         vertex_used = set()
         fragment_used = set()
 
+        self.uniforms = [ ]
+
         for k, v in kwargs.items():
 
             shader, _, priority = k.partition('_')
+
+            v = self.substitute_name(v)
 
             if not priority:
                 # Trigger error handling.
@@ -104,31 +132,66 @@ class ShaderPart(object):
             for m in re.finditer(r'\b\w+\b', v):
                 used.add(m.group(0))
 
-        for l in variables.split("\n"):
-            l = l.partition("//")[0].strip(' ;')
+        variables = self.substitute_name(variables)
 
-            a = l.split()
-            if not a:
+        for l in variables.split("\n"):
+
+            l = l.partition("//")[0]
+            l = l.strip()
+            if not l:
                 continue
 
-            a = tuple(a)
+            v = renpy.gl2.gl2shader.Variable(self.name, l)
 
-            if len(a) != 3:
-                raise Exception("{}: Unknown shader variable line {!r}. Only the form '{{uniform,attribute,vertex}} {{type}} {{name}} is allowed.".format(self.name, l))
+            if v.storage not in { "uniform", "attribute", "varying" }:
+                raise Exception("In shader {}: Unknown shader variable line {!r}. Only the form '{{uniform,attribute,vertex}} {{type}} {{name}} is allowed.".format(self.name, l))
 
-            kind = a[0]
-            name = a[2]
+            if v.array:
+                self.variable_types[v.name] = v.type + "[]"
+            else:
+                self.variable_types[v.name] = v.type
 
-            if name in vertex_used:
-                self.vertex_variables.add(a)
+            if v.name in vertex_used:
+                self.vertex_variables.add(v)
 
-            if name in fragment_used:
-                self.fragment_variables.add(a)
+            if v.name in fragment_used:
+                self.fragment_variables.add(v)
 
-            if kind == "uniform":
-                renpy.display.transform.add_uniform(name)
+            if v.storage == "uniform" and not private_uniforms:
+                renpy.display.transform.add_uniform(v.name, v.type)
+
+            if v.storage == "uniform":
+                self.uniforms.append(v.name)
 
         self.raw_variables = variables
+
+    def expand_name(self, s):
+        """
+        Expands names starting with u__, a__, and v__ to include the shader part name.
+        """
+
+        name = self.name.replace(".", "_")
+
+        if s.startswith("u__"):
+            return "u_" + name + "_" + s[3:]
+        elif s.startswith("a__"):
+            return "a_" + name + "_" + s[3:]
+        elif s.startswith("v__"):
+            return "v_" + name + "_" + s[3:]
+        elif s.startswith("l__"):
+            return "l_" + name + "_" + s[3:]
+        else:
+            return s
+
+    def expand_match(self, m):
+        """
+        Expands a match object using expand_name.
+        """
+
+        return self.expand_name(m.group(0))
+
+    def substitute_name(self, s):
+        return re.sub(r'[uavl]__\w+', self.expand_match, s)
 
 
 # A map from a tuple giving the parts that comprise a shader, to the Shader
@@ -154,7 +217,13 @@ def source(variables, parts, functions, fragment, gles):
 
         if fragment:
             rv.append("""\
-precision mediump float;
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    precision highp int;
+#else
+    precision mediump float;
+    precision mediump int;
+#endif
 """)
 
     else:
@@ -162,10 +231,10 @@ precision mediump float;
 #version 120
 """)
 
-    rv.extend(functions)
+    for v in sorted(variables, key=lambda x: x.name):
+        rv.append(v.line + ";\n")
 
-    for storage, type_, name in sorted(variables):
-        rv.append("{} {} {};\n".format(storage, type_, name))
+    rv.extend(functions)
 
     rv.append("\nvoid main() {\n")
 
@@ -178,6 +247,8 @@ precision mediump float;
 
     return "".join(rv)
 
+
+shader_part_filter_cache = { }
 
 class ShaderCache(object):
     """
@@ -214,6 +285,14 @@ class ShaderCache(object):
             A tuple of strings, giving the names of the shader parts to include in
             the cache.
         """
+
+        if renpy.config.shader_part_filter is not None:
+            new_partnames = shader_part_filter_cache.get(partnames, None)
+            if new_partnames is None:
+                new_partnames = renpy.config.shader_part_filter(partnames)
+                shader_part_filter_cache[partnames] = new_partnames
+
+            partnames = new_partnames
 
         rv = self.cache.get(partnames, None)
         if rv is not None:

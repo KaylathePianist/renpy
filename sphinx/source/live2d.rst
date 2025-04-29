@@ -26,10 +26,6 @@ It supports the playback of expressions and motions.
 
 .. warning::
 
-    Live2D is not supported on the x86_64 Android platform, as a DLL is not
-    provided for this platform. This means that it may have problems running
-    on the Android emulator or ChromeOS.
-
     Live2D is not supported on the web platform.
 
     Installing Live2D on iOS requires copying the static libraries into your
@@ -46,7 +42,7 @@ business makes more than a certain amount of money a year.
 
 Once you've downloaded Live2D, you can install it from the Ren'Py launcher. To
 install, go to "preferences", then click "Install libraries". Place the
-:file:`CubismSdkForNative-4-r.1.zip` file in the Ren'Py SDK directory, which can
+:file:`CubismSdkForNative-5-r.1.zip` file in the Ren'Py SDK directory, which can
 be accessed using the button in the bottom right of the install libraries
 screen. Then click "Install Live2D Cubism SDK for Native". After a short
 amount of time, Live2D will be installed.
@@ -99,14 +95,14 @@ Live2D animations are defined using the Live2D displayable and the image stateme
 
     `nonexclusive`
         If not None, this should be a list of names of nonexclusive expressions.
-        Expressions default to being exlcusive, with only one beign shown at
+        Expressions default to being exclusive, with only one being shown at
         a time. If listed here, any number of nonexclusive expressions can be
         shown, in addition to one exclusive expression.
 
     `seamless`
         This determines if seamless looping should be used. Seamless looping
         avoids fading between loops of a single motion. This may be True to
-        enable seamless looping all the time, False to dispable it all the
+        enable seamless looping all the time, False to disable it all the
         time, or a set of motions to be looped.
 
     `default_fade`
@@ -125,7 +121,7 @@ Live2D animations are defined using the Live2D displayable and the image stateme
     `attribute_filter`
         If not None, this is a function that takes a tuple of attributes,
         and returns a second tuple of attributes. This is usually used to
-        filter out nonexclusice attributes that conflict with each other. The attributes
+        filter out nonexclusive attributes that conflict with each other. The attributes
         are ordered such that more recently requested attributes come first,
         meaning that in the case of a conflict, the first attribute should
         win.

@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -25,16 +25,16 @@ from renpy.compat import PY2, basestring, bchr, bord, chr, open, pystr, range, r
 import renpy
 
 # Layer management.
-layers = frozenset(renpy.config.layers)
+ordered_layers = list(renpy.config.layers)
+layers = frozenset(ordered_layers)
 sticky_layers = frozenset()
 
 
 def init_layers():
-    global layers, sticky_layers
+    global layers, sticky_layers, ordered_layers
 
-    layers = frozenset(
-        renpy.config.layers + renpy.config.detached_layers +
-        renpy.config.top_layers + renpy.config.bottom_layers)
+    ordered_layers = renpy.config.detached_layers + renpy.config.bottom_layers + renpy.config.layers +  renpy.config.top_layers
+    layers = frozenset(ordered_layers)
     sticky_layers = frozenset(
         renpy.config.sticky_layers + renpy.config.detached_layers)
 
@@ -302,6 +302,9 @@ class SceneLists(renpy.object.Object):
 
         if not isinstance(old_transform, renpy.display.motion.Transform):
             return new_thing
+
+        if not old_transform.active:
+            old_transform.update_state()
 
         if renpy.config.take_state_from_target:
             new_transform = new_thing._target()
@@ -737,6 +740,7 @@ class SceneLists(renpy.object.Object):
         time, at_list = camera_list
 
         old_transform = self.camera_transform.get(layer, None)
+
         new_transform = None
 
         if at_list:
@@ -973,6 +977,41 @@ class SceneLists(renpy.object.Object):
                 sle.zorder = zorder
 
         sl.sort(key=lambda sle : sle.zorder)
+
+
+class _HasTransforms:
+    """
+    This is returned from layer_has_transforms.
+    """
+
+    at_list : bool
+    camera: bool
+    config_layer_transforms: bool
+
+def layer_has_transforms(layer):
+    """
+    :doc: undocumented
+
+    Used to determine if a layer has transforms associated with it. Returns
+    an object with the following attributes:
+
+    at_list
+        True unless the at_list is empty.
+
+    camera
+        True unless the camera list is empty.
+
+    config_layer_transforms
+        True unless the config.layer_transforms list is empty.
+    """
+
+    rv = _HasTransforms()
+
+    rv.at_list = bool(scene_lists().layer_at_list[layer][1])
+    rv.camera = bool(scene_lists().camera_list[layer][1])
+    rv.config_layer_transforms = bool(renpy.config.layer_transforms.get(layer, [ ]))
+
+    return rv
 
 
 def scene_lists(index=-1):

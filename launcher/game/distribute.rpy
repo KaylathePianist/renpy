@@ -1,4 +1,4 @@
-﻿# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+﻿# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -63,6 +63,7 @@ init python in distribute:
 
     # * Going from 7.4 to 7.5 or 8.0, the library directory changed.
     # * 7.7 called os.makedirs with exist_ok=True, even on Python 2.
+    # * 8.2 wouldn't save the DLC state.
     RENPY_PATCH = py("""\
 def change_renpy_executable():
     import sys, os, renpy, site
@@ -82,6 +83,24 @@ if sys.version_info.major == 2:
         os.old_makedirs(name, mode)
 
     os.makedirs = makedirs
+
+def fix_dlc(name, fn):
+    import sys, os
+
+    if not os.path.exists(os.path.join(config.renpy_base, fn)):
+        return
+
+    u = sys._getframe(2 if sys.version_info.major >= 3 else 4).f_locals["self"]
+    if name in u.current_state:
+        return
+
+    u.add_dlc_state(name)
+
+fix_dlc("steam", "lib/py3-linux-x86_64/libsteam_api.so")
+fix_dlc("steam", "lib/py2-linux-x86_64/libsteam_api.so")
+fix_dlc("web", "web")
+fix_dlc("rapt", "rapt")
+fix_dlc("renios", "renios")
 """)
 
     match_cache = { }
@@ -413,10 +432,7 @@ if sys.version_info.major == 2:
             for f in sorted(self, key=lambda a : a.name):
                 f.hash(sha, distributor)
 
-            if PY2:
-                return sha.hexdigest().decode("utf-8")
-            else:
-                return sha.hexdigest()
+            return sha.hexdigest()
 
         def split_by_prefix(self, prefix):
             """
@@ -642,7 +658,6 @@ if sys.version_info.major == 2:
             # Build the mac app and windows exes.
             self.add_mac_files()
             self.add_windows_files()
-            self.add_main_py()
 
             # Add the main.py.
             self.add_main_py()
@@ -879,7 +894,7 @@ if sys.version_info.major == 2:
             if not os.path.exists(path):
                 raise Exception("{} does not exist.".format(path))
 
-            if isinstance(file_list, basestring):
+            if isinstance(file_list, str):
                 file_list = file_list.split()
 
             f = File(name, path, False, executable)
@@ -892,7 +907,7 @@ if sys.version_info.major == 2:
             Adds an empty directory to the file lists.
             """
 
-            if isinstance(file_list, basestring):
+            if isinstance(file_list, str):
                 file_list = file_list.split()
 
             f = File(name, None, True, False)
@@ -927,6 +942,15 @@ if sys.version_info.major == 2:
 
                 arcfn = arcname + ".rpa"
                 arcpath = self.temp_filename(arcfn)
+
+                # Create new directories leading to the new archive file relative to the tmp root
+                # if the archive's name indicates it should be in a subdirectory
+                arc_relpath = os.path.relpath(arcpath, self.project.tmp)
+                arc_subdir = os.path.dirname(arc_relpath)
+
+                if arc_subdir:
+                    abs_subdir = os.path.join(self.project.tmp, arc_subdir)
+                    os.makedirs(abs_subdir, exist_ok=True)
 
                 af = archiver.Archive(arcpath)
 
@@ -966,7 +990,7 @@ if sys.version_info.major == 2:
                     script_version_txt = self.temp_filename("script_version.txt")
 
                     with open(script_version_txt, "w") as f:
-                        f.write(unicode(repr(renpy.renpy.version_tuple[:-1])))
+                        f.write(repr(renpy.renpy.version_tuple[:-1]))
 
                     self.add_file("all", "game/script_version.txt", script_version_txt)
 
@@ -1056,11 +1080,8 @@ if sys.version_info.major == 2:
 
             rv = self.temp_filename("Info.plist")
 
-            if PY2:
-                plistlib.writePlist(plist, rv)
-            else:
-                with open(rv, "wb") as f:
-                    plistlib.dump(plist, f)
+            with open(rv, "wb") as f:
+                plistlib.dump(plist, f)
 
             return rv
 
@@ -1081,12 +1102,14 @@ if sys.version_info.major == 2:
 
             prefix = py("lib/py{major}-")
 
-            if os.path.exists(linux_i686):
+            i686fn = os.path.join(config.renpy_base, prefix + "linux-i686/renpy")
+
+            if os.path.exists(i686fn):
 
                 self.add_file(
                     linux_i686,
                     prefix + "linux-i686/" + self.executable_name,
-                    os.path.join(config.renpy_base, prefix + "linux-i686/renpy"),
+                    i686fn,
                     True)
 
             self.add_file(
@@ -1094,16 +1117,6 @@ if sys.version_info.major == 2:
                 prefix + "linux-x86_64/" + self.executable_name,
                 os.path.join(config.renpy_base, prefix + "linux-x86_64/renpy"),
                 True)
-
-            armfn = os.path.join(config.renpy_base, prefix + "linux-armv7l/renpy")
-
-            if os.path.exists(armfn):
-
-                self.add_file(
-                    raspi,
-                    prefix + "linux-armv7l/" + self.executable_name,
-                    armfn,
-                    True)
 
             aarch64fn = os.path.join(config.renpy_base, prefix + "linux-aarch64/renpy")
 
@@ -1207,19 +1220,8 @@ if sys.version_info.major == 2:
                 if os.path.exists(tmp):
                     self.add_file(fl, dst, tmp)
 
-            if PY2:
-
-                if self.build["include_i686"]:
-                    write_exe("lib/py2-windows-i686/renpy.exe", self.exe32, self.exe32, windows_i686)
-                    write_exe("lib/py2-windows-i686/pythonw.exe", "lib/py2-windows-i686/pythonw.exe", "pythonw-32.exe", windows_i686)
-
-                write_exe("lib/py2-windows-x86_64/renpy.exe", self.exe, self.exe, windows)
-                write_exe("lib/py2-windows-x86_64/pythonw.exe", "lib/py2-windows-x86_64/pythonw.exe", "pythonw-64.exe", windows)
-
-            else:
-
-                write_exe("lib/py3-windows-x86_64/renpy.exe", self.exe, self.exe, windows)
-                write_exe("lib/py3-windows-x86_64/pythonw.exe", "lib/py3-windows-x86_64/pythonw.exe", "pythonw-64.exe", windows)
+            write_exe("lib/py3-windows-x86_64/renpy.exe", self.exe, self.exe, windows)
+            write_exe("lib/py3-windows-x86_64/pythonw.exe", "lib/py3-windows-x86_64/pythonw.exe", "pythonw-64.exe", windows)
 
 
         def add_main_py(self):
@@ -1512,11 +1514,12 @@ if sys.version_info.major == 2:
 
             update = { variant : { "version" : self.update_versions[variant], "base_name" : self.base_name, "files" : update_files, "directories" : update_directories, "xbit" : update_xbit } }
 
-            update_fn = os.path.join(self.destination, filename + ".update.json")
+            update_fn = self.temp_filename(filename + ".update.json")
+
 
             if self.include_update and not format.startswith("app-"):
 
-                with open(update_fn, "wb" if PY2 else "w") as f:
+                with open(update_fn, "w") as f:
                     json.dump(update, f, indent=2)
 
                 if (not dlc) or (format == "update"):
@@ -1546,14 +1549,11 @@ if sys.version_info.major == 2:
                 in this thread or a background thread.
                 """
 
-                if self.include_update and not self.build_update and not dlc:
-                    if os.path.exists(update_fn):
-                        os.unlink(update_fn)
+                final_update_fn = os.path.join(self.destination, filename + ".update.json")
 
-                if not directory:
-                    file_hash = hash_file(path)
-                else:
-                    file_hash = ""
+                if self.build_update or dlc:
+                    if os.path.exists(update_fn):
+                        shutil.copy(update_fn, final_update_fn)
 
             if format == "tar.bz2" or format == "bare-tar.bz2":
                 pkg = TarPackage(path, "w:bz2")
@@ -1787,8 +1787,9 @@ if sys.version_info.major == 2:
             reporter.info(_("Recompiling all rpy files into rpyc files..."))
             project.launch([ "compile", "--keep-orphan-rpyc" ], wait=True)
 
-        files = [fn + "c" for fn in project.script_files()
-                 if fn.startswith("game/") and project.exists(fn + "c")]
+        files = [
+            fn + "c" for fn in project.script_files()
+            if fn.startswith("game/") and project.exists(fn + "c")]
         len_files = len(files)
 
         if not files:

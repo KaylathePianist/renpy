@@ -40,7 +40,7 @@ Python identifiers (starts with a letter or underscore, followed by
 letters, numbers, and underscores).
 
 When the None language is selected, most of Ren'Py's translation
-functionality is disabled, with the notable exception of Renpy's
+functionality is disabled, with the notable exception of Ren'Py's
 internal built-in strings, from the accessibility menu for example.
 Theses strings are not found in your project's code, yet they will
 still be included in the distributed version of the game. You can
@@ -385,7 +385,7 @@ More usually, the font used for dialogue is set with :var:`gui.text_font`.
 The font used for system text, like the exception screen, the accessibility menu,
 and the gui menu, can be customized with :var:`gui.system_font`. The system font
 should be able to express both ASCII and the translated language. Together, these
-can be customized with.
+can be customized with::
 
     translate piglatin python:
         gui.text_font = "stonecutter.ttf"
@@ -443,6 +443,16 @@ The default language is chosen using the following method:
   :var:`config.default_language` is used.
 * Otherwise, the None language is used.
 
+
+Translation Info Screen
+=======================
+
+A screen with information about translations can be found by entering the developer menu (shift+D), and
+and selecting "Show Translation Info". For non-developers, this screen can be shown with::
+
+    show screen _translation_info
+
+
 Translation Actions, Functions, and Variables
 =============================================
 
@@ -482,6 +492,15 @@ translation:
     to the list of translatable strings. Note that the string may be
     double-translated, if it matches a string translation when it
     is displayed.
+
+.. function:: ___(s)
+
+    (Triple underscore) Immediately translates `s` into the current
+    language. If a :ref:`text interpolation <text-interpolation>` is
+    found, the interpolation will be performed using the local
+    variables in the scope that called this function. Note that
+    the string may be double-translated, if it matches a string
+    translation when it is displayed.
 
 .. include:: inc/underscore_p
 

@@ -1,3 +1,24 @@
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
+#
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 from __future__ import print_function
 
 from libc.stdlib cimport malloc, free
@@ -20,15 +41,36 @@ cdef class AttributeLayout:
         return (AttributeLayout, (self.offset, self.stride))
 
 
-
 # The layout of a mesh used in a Solid.
 SOLID_LAYOUT = AttributeLayout()
 
 # The layout of a mesh used with a texture.
 TEXTURE_LAYOUT = AttributeLayout()
-TEXTURE_LAYOUT.add_attribute("a_tex_coord", 2)
+TEXTURE_LAYOUT.add_attribute("a_tex_coord", 2) # The texture coordinate.
 
+# The layout of mesh with a normal.
+MODEL_N_LAYOUT = AttributeLayout()
+MODEL_N_LAYOUT.add_attribute("a_tex_coord", 2) # The texture coordinate.
+MODEL_N_LAYOUT.add_attribute("a_normal", 3) # The normal.
 
+# The layout of a mesh used with a texture, normal, tangent, and bitangent.
+MODEL_NT_LAYOUT = AttributeLayout()
+MODEL_NT_LAYOUT.add_attribute("a_tex_coord", 2) # The texture coordinate.
+MODEL_NT_LAYOUT.add_attribute("a_normal", 3) # The normal.
+MODEL_NT_LAYOUT.add_attribute("a_tangent", 3) # The tangent.
+MODEL_NT_LAYOUT.add_attribute("a_bitangent", 3) # The bitangent.
+
+# The layout of a mesh used with text.
+TEXT_LAYOUT = AttributeLayout()
+TEXT_LAYOUT.add_attribute("a_tex_coord", 2) # The texture coordinate.
+TEXT_LAYOUT.add_attribute("a_text_center", 2) # Position of the vertex center.
+TEXT_LAYOUT.add_attribute("a_text_time", 1) # The time this vertex should be shown.
+TEXT_LAYOUT.add_attribute("a_text_min_time", 1) # The minimum time any vertex in this glyph should be shown.
+TEXT_LAYOUT.add_attribute("a_text_max_time", 1) # The maximum time any vertex in this glyph should be shown.
+TEXT_LAYOUT.add_attribute("a_text_index", 1) # The glyph number.
+TEXT_LAYOUT.add_attribute("a_text_pos_rect", 4) # The rectangle being drawn.
+TEXT_LAYOUT.add_attribute("a_text_ascent", 1) # The ascent of the font.
+TEXT_LAYOUT.add_attribute("a_text_descent", 1) # The ascent of the font.
 
 cdef class Mesh:
 
@@ -56,7 +98,7 @@ cdef class Mesh:
         cdef int i
         cdef int len_geometry = len(geometry)
 
-        for 0 <= i < len_geometry:
+        for i in range(len_geometry):
             self.point_data[i] = geometry[i]
 
     def set_attribute_data(self, attributes):
@@ -78,7 +120,7 @@ cdef class Mesh:
         if len_attributes > self.allocated_points * self.layout.stride:
             raise Exception("Attributes contains too much data.")
 
-        for 0 <= i < len_attributes:
+        for i in range(len_attributes):
             self.attribute[i] = attributes[i]
 
     def set_triangle_data(self, triangles):
@@ -103,7 +145,7 @@ cdef class Mesh:
 
         self.triangles = len_triangles // 3
 
-        for 0 <= i < len_triangles:
+        for i in range(len_triangles):
             self.triangle[i] = triangles[i]
 
     def get_triangles(self):
@@ -115,7 +157,7 @@ cdef class Mesh:
 
         rv = [ ]
 
-        for 0 <= i < self.triangles:
+        for i in range(self.triangles):
             rv.append((
                 self.triangle[i * 3 + 0],
                 self.triangle[i * 3 + 1],

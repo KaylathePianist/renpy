@@ -20,9 +20,10 @@
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 default persistent.show_edit_funcs = True
-default persistent.windows_console = False
+default persistent.use_console = False
 default persistent.lint_options = set()
 default persistent.use_web_doc = False
+default persistent.show_tutorial_projects = True
 
 init python:
     from math import ceil
@@ -235,8 +236,8 @@ screen preferences():
 
                             add HALF_SPACER
 
-                            if renpy.windows:
-                                textbutton _("Console output") style "l_checkbox" action ToggleField(persistent, "windows_console")
+                            if renpy.windows or renpy.macintosh:   
+                                textbutton _("Console output") style "l_checkbox" action ToggleField(persistent, "use_console")
 
                             textbutton _("Skip splashscreen") style "l_checkbox" action ToggleField(persistent, "skip_splashscreen")
 
@@ -252,6 +253,7 @@ screen preferences():
                             add HALF_SPACER
 
                             textbutton _("Show edit file section") style "l_checkbox" action ToggleField(persistent, "show_edit_funcs")
+                            textbutton _("Show tutorial projects") style "l_checkbox" action ToggleField(persistent, "show_tutorial_projects")
                             textbutton _("Large fonts") style "l_checkbox" action [ ToggleField(persistent, "large_print"), renpy.utter_restart ]
 
                             if interface.local_doc_exists:

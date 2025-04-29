@@ -478,6 +478,9 @@ Text Style Properties
     When rendering an image-based font, black will be mapped to this
     color. This has no effect for TrueType fonts.
 
+    This may be None in the case of ruby/furigana text, to use the same
+    color as the parent text.
+
 .. style-property:: bold boolean
 
     If True, render the font in a bold style. For a TrueType font,
@@ -496,6 +499,9 @@ Text Style Properties
     The color the text is rendered in. When using a TrueType font,
     the font is rendered in this color. When using an image-based
     font, white is mapped to this color.
+
+    This may be None in the case of ruby/furigana text, to use the same
+    color as the parent text.
 
 .. style-property:: emoji_font string
 
@@ -719,7 +725,7 @@ Text Style Properties
 
 .. style-property:: prefer_emoji boolean
 
-    Some unicode characters have both Emoji and non-Emjoji presentations. This
+    Some unicode characters have both Emoji and non-Emoji presentations. This
     style property chooses if such characters are given the Emoji presentation
     or not.
 
@@ -1049,11 +1055,14 @@ left and right sides are used.
     If not None, this is a displayable that is drawn over the break
     between the sides of the bar.
 
-.. style-property:: thumb_offset int
+.. style-property:: thumb_offset int or tuple of (int, int)
 
     The amount that by which the thumb overlaps the bars, in
     pixels. To have the left and right bars continue unbroken, set
-    this to half the width of the thumb in pixels.
+    this to half the width of the thumb in pixels. This may also be
+    a tuple, in which case the first number is used for the left/top
+    thumb offset, and the second number is used for the right/bottom
+    thumb offset.
 
 .. style-property:: mouse string
 
@@ -1118,12 +1127,35 @@ These are used for the horizontal and vertical box layouts.
     or columns. (So it is the vertical spacing between lines in a wrapped
     hbox, and the horizontal spacing between columns in a wrapped vbox.)
 
+.. style-property:: box_align float or None
+
+    This determines the alignment of rows or columns in a box. If 0.0,
+    the default, rows are left-aligned and columns are top-aligned. If 0.5,
+    it will center wrapped rows.
+
+    When this is not None, addional space will not be offered to the child when
+    :propref:`xfill` or :propref:`yfill` is set, ignoring the child's position
+    in the box's primary direction.
+
 .. style-property:: order_reverse boolean
 
     If False, the default, the items in the box will be drawn first-to-last,
     with the first item in the box being below the second, and so on. If True,
     this order will be reversed, and the first item in the box will be above
     all other items in the box.
+
+.. style-property:: box_justify boolean or "first" or "all"
+
+    If not False, the contents of the box will be justified - that is, the items
+    inside the box will have the spacing between them adjusted so they evenly
+    span the size of the box. True will cause all lines but the final line to be
+    justified. "first" will cause only the first line to be justified. "all"
+    will cause all lines to be justified, including the final line. Justified
+    lines do not obey box_align, except when there is only one item in a line.
+
+    When this is not false, addional space will not be offered to the child when
+    :propref:`xfill` or :propref:`yfill` is set, ignoring the child's position
+    in the box's primary direction.
 
 
 .. _grid-style-properties:

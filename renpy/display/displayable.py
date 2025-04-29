@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -192,6 +192,9 @@ class Displayable(renpy.object.Object):
     # Used by a transition (or transition-like object) to determine how long to
     # delay for.
     delay = None # type: float|None
+
+    # An id that can be used to identify this displayable.
+    id = None # type: str|None
 
     def __ne__(self, o):
         return not (self == o)
@@ -388,7 +391,7 @@ class Displayable(renpy.object.Object):
 
     def event(self, ev, x, y, st):
         """
-        Called to report than an event has occured. Ev is the raw
+        Called to report than an event has occurred. Ev is the raw
         pygame event object representing that event. If the event
         involves the mouse, x and y are the translation of the event
         into the coordinates of this displayable. st is the time this
@@ -502,18 +505,27 @@ class Displayable(renpy.object.Object):
 
         return pos
 
+    _store_transform_event = False
+
     def set_transform_event(self, event):
         """
         Sets the transform event of this displayable to event.
+
+        transform_event_responder needs to be set on displayables that respond to transform events.
+
+        _store_transform_event should be set on displayables that store a generated transform event,
+        like Button or Bar.
         """
 
-        if event == self.transform_event:
-            return
+        if self.transform_event_responder or self._store_transform_event:
 
-        self.transform_event = event
+            if event == self.transform_event:
+                return
 
-        if self.transform_event_responder:
-            renpy.display.render.redraw(self, 0)
+            self.transform_event = event
+
+            if self.transform_event_responder:
+                renpy.display.render.redraw(self, 0)
 
     def _handles_event(self, event):
         """
@@ -580,11 +592,15 @@ class Displayable(renpy.object.Object):
             if i is not None:
                 speech = i._tts()
 
+                if isinstance(speech, renpy.display.tts.TTSDone):
+                    if speech.strip():
+                        rv = [ speech ]
+                    else:
+                        rv = [ ]
+                    break
+
                 if speech.strip():
                     rv.append(speech)
-                    if isinstance(speech, renpy.display.tts.TTSDone):
-                        rv = [ speech ]
-                        break
 
 
         rv = ": ".join(rv)

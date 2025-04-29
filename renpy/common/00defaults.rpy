@@ -1,4 +1,4 @@
-﻿# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+﻿# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -114,9 +114,14 @@ init -1500 python:
             if config.default_emphasize_audio is not None:
                 _preferences.emphasize_audio = config.default_emphasize_audio
 
-            _preferences.set_volume('music', _vol(config.default_music_volume))
-            _preferences.set_volume('sfx', _vol(config.default_sfx_volume))
-            _preferences.set_volume('voice', _vol(config.default_voice_volume))
+            if config.default_music_volume is not None:
+                _preferences.set_volume('music', _vol(config.default_music_volume))
+
+            if config.default_sfx_volume is not None:
+                _preferences.set_volume('sfx', _vol(config.default_sfx_volume))
+
+            if config.default_voice_volume is not None:
+                _preferences.set_volume('voice', _vol(config.default_voice_volume))
 
         # Use default_afm_enable to decide if we use the afm_enable
         # preference.
@@ -129,15 +134,6 @@ init -1500 python:
 init 1500 python hide:
 
     config.emphasize_audio_volume = _vol(config.emphasize_audio_volume)
-
-    if not persistent._linearized_volumes:
-        for k, v in _preferences.volumes.items():
-            _preferences.volumes[k] = v ** 2
-
-        for k, v in persistent._character_volume.items():
-            persistent._character_volume[k] = v ** 2
-
-        persistent._linearized_volumes = True
 
     _apply_default_preferences()
 
@@ -225,11 +221,7 @@ init -1500 python:
         if protocol in config.hyperlink_handlers:
             return config.hyperlink_handlers[protocol](value)
         else:
-            try:
-                import webbrowser
-                webbrowser.open(target)
-            except Exception:
-                pass
+            renpy.open_url(target)
 
     def hyperlink_sensitive(target):
 

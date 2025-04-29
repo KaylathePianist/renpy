@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -26,7 +26,7 @@
 from __future__ import division, absolute_import, with_statement, print_function, unicode_literals
 from renpy.compat import PY2, basestring, bchr, bord, chr, open, pystr, range, round, str, tobytes, unicode # *
 
-from typing import Optional, List
+from typing import Optional, List, Callable
 
 
 import collections
@@ -57,7 +57,7 @@ sound = True
 debug = False
 
 # Ditto, but for sound operations
-debug_sound = None
+debug_sound = os.environ.get("RENPY_DEBUG_SOUND", False)
 
 # Is rollback enabled? (This only controls if the user-invoked
 # rollback command does anything)
@@ -141,7 +141,7 @@ sound_sample_rate = 48000
 # The default fadeout used when playing or stopping audio.
 fadeout_audio = 0.016
 
-# The old name of config.fadeout_audio. Kept for compatibility, and yused
+# The old name of config.fadeout_audio. Kept for compatibility, and used
 # in 00compat.rpy.
 fade_music = None
 
@@ -274,6 +274,9 @@ default_developer = False
 
 # A logfile that logging messages are sent to.
 log = None
+
+# Clear config.log at startup
+clear_log = False
 
 # Lint hooks.
 lint_hooks = [ ]
@@ -602,7 +605,10 @@ dispatch_gesture = None
 
 # The table mapping gestures to events used by the default function.
 gestures = {
-    "n_s_w_e_w_e" : "progress_screen",
+    "s_n_e_s_w" : "progress_screen",
+    "n_e_s_w" : "progress_screen",
+    "ne_se" : "accessibility",
+    "nw_sw" : "accessibility",
     }
 
 # Sizes of gesture components and strokes, as a fraction of screen_width.
@@ -770,7 +776,7 @@ translate_files = [ ]
 # translated.
 translate_comments = [ ]
 
-# Should we trying detect user locale on first launch?
+# Should we try detect user locale on first launch?
 enable_language_autodetect = False
 
 # A function from (locale, region) -> existing language.
@@ -817,7 +823,7 @@ profile_screens = [ ]
 allow_sysfonts = False
 
 # Should Ren'Py tightly loop during fadeouts? (That is, not stop the fadeout
-# if it reaches the end of a trac.)
+# if it reaches the end of a track.)
 tight_loop_default = True
 
 # Should Ren'Py apply style_prefix to viewport scrollbar styles?
@@ -843,14 +849,14 @@ lint_stats_callbacks = [ ]
 # Should we apply position properties to the side of a viewport?
 position_viewport_side = True
 
-# Things that be given properties via Character.
+# Things that can be given properties via Character.
 character_id_prefixes = [ ]
 
 # Should {nw} wait for voice.
 nw_voice = True
 
 # If not None, a function that's used to process say arguments.
-say_arguments_callback = None
+say_arguments_callback = None # type: Callable|None
 
 # Should we show an atl interpolation for one frame?
 atl_one_frame = True
@@ -880,7 +886,7 @@ loadable_callback = None
 
 # How many frames should be drawn fast each time the screen needs to be
 # updated?
-fast_redraw_frames = 4
+fast_redraw_frames = 12
 
 # The color passed to glClearColor when clearing the screen.
 gl_clear_color = "#000"
@@ -943,7 +949,7 @@ repeat_transform_events = [ "show", "replace", "update" ]
 # How many statements should we warp through?
 warp_limit = 1000
 
-# Should dissolve statments force the use of alpha.
+# Should dissolve statements force the use of alpha.
 dissolve_force_alpha = True
 
 # A map from a displayable prefix to a function that returns a displayable
@@ -977,14 +983,14 @@ menu_include_disabled = False
 # Should we report extraneous attributes?
 report_extraneous_attributes = True
 
-# Should we play non-loooped music when skipping?
+# Should we avoid playing non-loooped music when skipping?
 skip_sounds = False
 
 # Should we lint screens without parameters?
 lint_screens_without_parameters = True
 
 # If not None, a function that's used to process and modify menu arguments.
-menu_arguments_callback = None
+menu_arguments_callback = None # type: Callable|None
 
 # Should Ren'PY automatically clear the screenshot?
 auto_clear_screenshot = True
@@ -1045,9 +1051,9 @@ depth_size = 24
 context_copy_remove_screens = [ "notify" ]
 
 # An exception handling callback.
-exception_handler = None
+exception_handler: Callable[[renpy.error.TracebackException], bool] | None = None
 
-# A label that is jumped to if return fails.
+# A label to jump to if return fails.
 return_not_found_label = None
 
 # A list of (regex, autoreload function) tuples.
@@ -1127,6 +1133,9 @@ controller_blocklist = [
     "030000006d0400000000", # Razer Xbox 360 Controller (#4622)
 ]
 
+# Should other textures be mipmapped by default?
+mipmap = "auto"
+
 # Should dissolve transitions be mipmapped by default?
 mipmap_dissolves = False
 
@@ -1143,7 +1152,7 @@ allow_screensaver = True
 context_fadein_music = 0
 context_fadeout_music = 0
 
-# Shout it be possible to dismiss blocking transitions that are not part of
+# Should it be possible to dismiss blocking transitions that are not part of
 # a with statement?
 dismiss_blocking_transitions = True
 
@@ -1170,7 +1179,7 @@ scene_clears_layer_at_list = True
 mouse_displayable = None
 
 # The default bias for the GL level of detail.
-gl_lod_bias = -.5
+gl_lod_bias = -.6
 
 # A dictionary from a tag (or None) to a function that adjusts the attributes
 # of that tag.
@@ -1211,7 +1220,7 @@ input_caret_blink = 1.
 single_movie_channel = None
 
 # Should Ren'Py raise exceptions when finding an image?
-raise_image_exceptions = True
+raise_image_exceptions = None
 
 # Should the size transform property only accept numbers of pixels ?
 relative_transform_size = True
@@ -1301,7 +1310,7 @@ viewport_drag_radius = 10
 # function is run.
 scene_callbacks = [ ]
 
-# The physical width and heigh of the game window. If None, the window defaults
+# The physical width and height of the game window. If None, the window defaults
 # to config.screen_width and config.screen_height.
 physical_width = None
 physical_height = None
@@ -1309,7 +1318,7 @@ physical_height = None
 # If true, lenticular brackets can be used to encode ruby text.
 lenticular_bracket_ruby = True
 
-# If true, the web implentation of renpy.input will be used.
+# If true, the web implementation of renpy.input will be used.
 web_input = True
 
 # Aliases for the keys on the numeric keypad, to make them easier to write as keysyms.
@@ -1366,7 +1375,7 @@ check_conflicting_properties = False
 # A list of extra save directories. Strings giving the full paths.
 extra_savedirs = [ ]
 
-# The text-to-speech dictionary. A list of [ (RegeEx|String, String) ] pairs.
+# The text-to-speech dictionary. A list of [ (RegEx|String, String) ] pairs.
 tts_substitutions = [ ]
 
 # The base URL where unpacked web videos can be found.
@@ -1405,8 +1414,14 @@ ex_rollback_classes = [ ]
 # Should we revert to the old behavior of box_reverse?
 simple_box_reverse = False
 
+# Should we revert to the right/bottom-alignment for non-simple reversed boxes?
+box_reverse_align = False
+
 # If True, positional-only parameters are allowed in ATL transform signatures.
 atl_pos_only = False
+
+# If True, positional-only parameters in ATL transform signatures are treated as pos-or-keyword.
+atl_pos_only_as_pos_or_kw = False
 
 # A map from font name to the hinting for the font.
 font_hinting = { None : "auto" }
@@ -1450,6 +1465,72 @@ screens_never_cancel_hide = True
 # A list of transforms that are applied to entire layers.
 layer_transforms = { }
 
+# True if xfill or yfill can cause a window to shrink.
+fill_shrinks_frame = False
+
+# Set this to true to log events to log.txt.
+log_events = os.environ.get("RENPY_LOG_EVENTS", False)
+
+# Callbacks to run just before python exits.
+python_exit_callbacks = [ ]
+
+# Should exceptions be raised if an image fails to load.
+raise_image_load_exceptions = None
+
+# A map from name to text shader object.
+textshaders = { } # type: dict[str, renpy.text.shader.TextShader]
+
+# A map from names to functions that return text shaders.
+textshader_callbacks = { } # type: dict[str, Callable[[], str]]
+
+# The default textshader
+default_textshader = None # type: str | None
+
+# A function that is called with a tuple of shader parts, and returns a tuple of shader parts.
+shader_part_filter = None # type: Optional[Callable[[tuple[str]], tuple[str]]]
+
+# Should munging occur everywhere in strings.
+munge_in_strings = True
+
+# The version of the character callback.
+character_callback_compat = None
+
+# A list of who arguments to translate that will not be translated.
+translate_ignore_who = [ ]
+
+# The layer built-in screens exist on.
+interface_layer = "screens"
+
+# Should Transform crop be limited to the width and height of the image being cropped?
+limit_transform_crop = False
+
+# Should as dissolve shrink to the size of the smallest child?
+dissolve_shrinks = False
+
+# Should arabic presentations forms be reversed to base forms?
+reverse_arabic_presentation_forms = True
+
+# Should the script be compiled with from future import annotations?
+future_annotations = False
+
+# Marking labels, images and audio in replays as seen is not allowed.
+no_replay_seen = False
+
+# Should we use pre-8.4 show expression behavior?
+old_show_expression = False
+
+# Callbacks that give the translation system more strings to translate.
+translate_additional_strings_callbacks = [ ]
+
+# Should Ren'Py keep and existing screenshot when entering a menu.
+keep_screenshot_entering_menu = False
+
+# Should Ren'Py hash seen statements and tlids?
+hash_seen = True
+
+# A function that is called whenever persistent data is loaded.
+persistent_callback = None
+
 
 del os
 del collections
@@ -1484,3 +1565,15 @@ def init():
     gl_blend_func["multiply"] = (GL_FUNC_ADD, GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA, GL_FUNC_ADD, GL_ZERO, GL_ONE)
     gl_blend_func["min"] = (GL_MIN, GL_ONE, GL_ONE, GL_MIN, GL_ONE, GL_ONE)
     gl_blend_func["max"] = (GL_MAX, GL_ONE, GL_ONE, GL_MAX, GL_ONE, GL_ONE)
+
+
+def post_init():
+    """
+    Called after all init scripts have been run.
+    """
+
+    if renpy.config.raise_image_exceptions is None:
+        renpy.config.raise_image_exceptions = renpy.config.developer
+
+    if renpy.config.raise_image_load_exceptions:
+        renpy.config.raise_image_load_exceptions = renpy.config.developer

@@ -9,11 +9,17 @@ import shutil
 import io
 import os
 import textwrap
+import pprint
 
 try:
     import builtins
 except ImportError:
     import __builtin__ as builtins
+
+
+# A list of action names. This is updated as this file runs.
+actions = set()
+
 
 # Additional keywords in the Ren'Py script language.
 SCRIPT_KEYWORDS = """\
@@ -186,14 +192,16 @@ def write_keywords(srcdir='source'):
 
     with open(outf, "w") as f:
 
-        f.write("keywords = %r\n" % kwlist)
-        f.write("keyword_regex = %r\n" % ("|".join(re.escape(i) for i in kwlist)))
+        keyword_regex = [ re.escape(i) for i in kwlist ]
+
+        f.write("keywords = %s\n" % pprint.pformat(kwlist))
+        f.write("keyword_regex = %s\n" % pprint.pformat(keyword_regex))
+        f.write("keyword_regex = '|'.join(keyword_regex)\n")
 
         properties = [ i for i in expanded_sl2_properties() if i not in kwlist ]
 
-        f.write("properties = %r\n" % properties)
-
-        f.write("property_regexes = %r\n" % sl2_regexps())
+        f.write("properties = %s\n" % pprint.pformat(properties))
+        f.write("property_regexes = %s\n" % pprint.pformat(sl2_regexps()))
 
     shutil.copy(outf, os.path.join(srcdir, "../../tutorial/game/keywords.py"))
 
@@ -230,9 +238,10 @@ objinidoc = getdoc(object.__init__)
 def scan(name, o, prefix="", inclass=False):
 
     if inspect.isclass(o):
-        if issubclass(o, (renpy.store.Action,
-                          renpy.store.BarValue,
-                          renpy.store.InputValue)):
+        if issubclass(o, renpy.store.Action):
+            doc_type = "action"
+        elif issubclass(o, (renpy.store.BarValue,
+                            renpy.store.InputValue)):
             doc_type = "function"
         else:
             doc_type = "class"
@@ -335,6 +344,10 @@ def scan(name, o, prefix="", inclass=False):
             args = str(args)
         else:
             args = "()"
+
+    if doc_type == "action":
+        actions.add(name)
+        doc_type = "function"
 
     # Put it into the line buffer.
     lb = line_buffer[section]

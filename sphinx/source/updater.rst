@@ -39,7 +39,7 @@ updates.ecdsa
    tampered with.
 
 rpu/
-   The rpu directory contains the metadat and data used by the updates.
+   The rpu directory contains the metadata and data used by the updates.
 
 You should upload these to the same place on your webserver.
 
@@ -74,7 +74,7 @@ screen. Here's an example screen::
             vbox:
 
                if u.state == u.ERROR:
-                  text _("An error has occured:")
+                  text _("An error has occurred:")
                elif u.state == u.CHECKING:
                   text _("Checking for updates.")
                elif u.state == u.UPDATE_NOT_AVAILABLE:
@@ -118,13 +118,13 @@ The updater screen is supplied a single parameter, an Updater object, which
 must be named `u`. The Updater object has the following fields on it, which
 can be used to customize the screen:
 
-.. class:: update.Updater
+.. class:: updater.Updater
 
    .. attribute:: state
 
       The current state of the updater. See the example above for possible
       values and their meanings. The values are all constants on the Updater
-      obect.
+      object.
 
    .. attribute:: message
 

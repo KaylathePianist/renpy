@@ -6,6 +6,9 @@ These environment variables may disappear or change between Ren'Py releases.
 
 The following environment variables control the behavior of Ren'Py:
 
+``RENPY_DEBUG_SOUND``
+    If set, Ren'Py will generate exceptions when audio errors occur.
+
 ``RENPY_DISABLE_JOYSTICK``
     If set, joystick detection is disabled. Use this if a faulty joystick is
     causing Ren'Py to advance when not desired.
@@ -52,6 +55,10 @@ The following environment variables control the behavior of Ren'Py:
 
 ``RENPY_LESS_UPDATES``
     This causes Ren'Py to reduce the number of screen updates that occur.
+
+``RENPY_LOG_EVENTS``
+    If set, Ren'Py will log pygame-style events to the log.txt file. This will hurt performance, but might be
+    useful for debugging certain problems.
 
 ``RENPY_MULTIPERSISTENT``
     The path to a directory where Ren'Py stores multipersistent data.

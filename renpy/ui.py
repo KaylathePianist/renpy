@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -442,10 +442,7 @@ screen = None # type: renpy.display.screen.ScreenDisplayable|None
 class Wrapper(renpy.object.Object):
 
     def __reduce__(self):
-        if PY2:
-            return bytes(self.name) # type: ignore
-        else:
-            return self.name
+        return self.name
 
     def __init__(self, function, one=False, many=False, imagemap=False, replaces=False, style=None, **kwargs):
 
@@ -811,6 +808,31 @@ class ChoiceJump(ChoiceActionBase):
         renpy.exports.jump(self.value)
 
 
+class Choice(object):
+    """
+    :doc: se_menu
+    :name: renpy.Choice
+    :args: (value, /, *args, **kwargs)
+
+    This encapsulates a menu choice with with arguments. The first positional argument is is the value
+    that will be returned, and the other arguments are the arguments that will be passed to the choice
+    screen.
+
+    This is intended for use in the items list of :func:`renpy.display_menu` to supply arguments to
+    that screen.
+
+    `value`
+        The value that will be given to the choice screen.
+
+    Positional arguments and keyword arguments are stored in this object and used by renpy.display_menu.
+    """
+
+    def __init__(self, _value, *args, **kwargs):
+        self.value = _value
+        self.args = args
+        self.kwargs = kwargs
+
+
 def menu(menuitems,
          style='menu',
          caption_style='menu_caption',
@@ -842,9 +864,9 @@ def menu(menuitems,
                 text = choice_chosen_style
                 button = choice_chosen_button_style
 
-            if isinstance(button, basestring):
+            if isinstance(button, str):
                 button = getattr(renpy.game.style, button)
-            if isinstance(text, basestring):
+            if isinstance(text, str):
                 text = getattr(renpy.game.style, text)
 
             button = button[label]
@@ -871,7 +893,7 @@ def imagemap_compat(ground,
                     button_style='hotspot',
                     **properties):
 
-    if isinstance(button_style, basestring):
+    if isinstance(button_style, str):
         button_style = getattr(renpy.game.style, button_style)
 
     fixed(style=style, **properties)
@@ -1053,7 +1075,7 @@ def _bar(*args, **properties):
             else:
                 style = value.get_style()[0]
 
-            if isinstance(style, basestring):
+            if isinstance(style, str):
                 style = prefixed_style(style)
 
             properties["style"] = style
@@ -1413,8 +1435,8 @@ returns = renpy.curry.curry(_returns)
 
 def _jumps(label, transition=None):
 
-    if isinstance(transition, basestring):
-        transition = getattr(renpy.config, transition) # type: ignore
+    if isinstance(transition, str):
+        transition = getattr(renpy.config, transition)
 
     if transition is not None:
         renpy.exports.transition(transition)

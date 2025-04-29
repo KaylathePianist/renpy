@@ -1,4 +1,4 @@
-﻿# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+﻿# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -41,7 +41,6 @@ init -1500 python in updater:
     import zlib
     import codecs
     import io
-    import future.utils
 
     def urlopen(url):
         import requests
@@ -200,7 +199,7 @@ init -1500 python in updater:
             The state that the updater is in.
 
         self.message
-            In an error state, the error message that occured.
+            In an error state, the error message that occurred.
 
         self.progress
             If not None, a number between 0.0 and 1.0 giving some sort of
@@ -213,7 +212,7 @@ init -1500 python in updater:
 
         # Here are the possible states.
 
-        # An error occured during the update process.
+        # An error occurred during the update process.
         # self.message is set to the error message.
         ERROR = "ERROR"
 
@@ -425,7 +424,7 @@ init -1500 python in updater:
                     self.log.flush()
 
             except Exception as e:
-                self.message = _type(e).__name__ + ": " + unicode(e)
+                self.message = _type(e).__name__ + ": " + str(e)
                 self.can_cancel = False
                 self.can_proceed = True
                 self.state = self.ERROR
@@ -667,6 +666,8 @@ init -1500 python in updater:
 
             # 8. Finish up.
 
+            self.save_state()
+
             persistent._update_version[self.url] = None
 
             if self.restart:
@@ -769,8 +770,8 @@ init -1500 python in updater:
                 persistent._update_version[self.url] = None
                 return
 
-            pretty_version = build.version or build.directory_name
-            persistent._update_version[self.url] = pretty_version
+            self.pretty_version = build.version or build.directory_name
+            persistent._update_version[self.url] = self.pretty_version
 
             if self.check_only:
                 renpy.restart_interaction()
@@ -1049,8 +1050,12 @@ init -1500 python in updater:
 
             self.updates = json.loads(updates_json)
 
-            if verified and "monkeypatch" in self.updates:
-                future.utils.exec_(self.updates["monkeypatch"], globals(), globals())
+            if "RENPY_TEST_MONKEYPATCH" in os.environ:
+                with open(os.environ["RENPY_TEST_MONKEYPATCH"], "r") as f:
+                    monkeypatch = f.read()
+                    exec(monkeypatch, globals(), globals())
+            elif verified and "monkeypatch" in self.updates:
+                exec(self.updates["monkeypatch"], globals(), globals())
 
         def add_dlc_state(self, name):
 
@@ -1633,7 +1638,7 @@ init -1500 python in updater:
             fn = os.path.join(self.updatedir, "current.json")
 
             with open(fn, "w") as f:
-                json.dump(self.new_state, f)
+                json.dump(self.new_state, f, indent=2)
 
         def clean(self, fn):
             """
@@ -1768,7 +1773,7 @@ init -1500 python in updater:
         `restart`
             If true, the game will be re-run when the update completes. If
             "utter", :func:`renpy.utter_restart` will be called instead. If False,
-            the update will simply end.c
+            the update will simply end.
 
         `confirm`
             Should Ren'Py prompt the user to confirm the update? If False, the
@@ -2003,6 +2008,7 @@ init -1500 python in updater:
 init -1500:
 
     screen updater(u):
+        layer config.interface_layer
 
         add "#000"
 
@@ -2019,7 +2025,7 @@ init -1500:
                 vbox:
 
                     if u.state == u.ERROR:
-                        text _("An error has occured:")
+                        text _("An error has occurred:")
                     elif u.state == u.CHECKING:
                         text _("Checking for updates.")
                     elif u.state == u.UPDATE_NOT_AVAILABLE:
@@ -2061,6 +2067,7 @@ init -1500:
 
 
     screen downloader(u):
+        layer config.interface_layer
 
         style_prefix "downloader"
 
@@ -2075,7 +2082,7 @@ init -1500:
             elif u.state == u.FINISHING or u.state == u.DONE:
                 text _("The game data has been downloaded.")
             else: # An error or unknown state.
-                text _("An error occured when trying to download game data:")
+                text _("An error occurred when trying to download game data:")
 
                 if u.message is not None:
                     text "[u.message!q]"

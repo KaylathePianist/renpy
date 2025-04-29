@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -22,10 +22,11 @@
 # This file contains code responsible for managing the execution of a
 # renpy object, as well as the context object.
 
-from __future__ import division, absolute_import, with_statement, print_function, unicode_literals
-from renpy.compat import PY2, basestring, bchr, bord, chr, open, pystr, range, round, str, tobytes, unicode # *
+from typing import TYPE_CHECKING, Callable
 
-from future.utils import reraise
+# FrameType can't be pickled!
+if TYPE_CHECKING:
+    from types import FrameType
 
 import sys
 import time
@@ -156,6 +157,8 @@ class Context(renpy.object.Object):
     deferred_translate_identifier = None
 
     predict_return_stack = None # type: list|None
+
+    exception_handler: Callable[[renpy.error.TracebackException], bool] | None
 
     def __repr__(self):
 
@@ -322,7 +325,10 @@ class Context(renpy.object.Object):
         self.dynamic_stack.append({ })
 
         if clear:
-            for i in renpy.config.context_clear_layers:
+            if clear is True:
+                clear = renpy.config.context_clear_layers
+
+            for i in clear:
                 self.scene_lists.clear(layer=i)
 
         # A list of modes that the context has been in.
@@ -459,7 +465,48 @@ class Context(renpy.object.Object):
 
             raise e
 
-    def report_traceback(self, name, last):
+    def handle_exception(self):
+        """
+        Handles exception that is currently on a fly.
+        """
+
+        e = sys.exception()
+        if e is None:
+            return
+
+        # Base exceptions are not handled.
+        elif not isinstance(e, Exception):
+            raise
+
+        te = renpy.error.report_exception(e, editor=False)
+
+        # Local exception handler, if any. This should handle all cases
+        # of the exception.
+        if self.exception_handler is not None:
+            self.exception_handler(te)
+            return
+
+        # Creator-defined exception handler. Returns True
+        # if exception handled.
+        if renpy.config.exception_handler is not None:
+            try:
+                # Before 8.4 it was a function that takes 3 strings.
+                import inspect
+                inspect.signature(renpy.config.exception_handler).bind(te)
+
+            except TypeError:
+                if not renpy.config.exception_handler(*te): # type: ignore
+                    return
+
+            else:
+                if not renpy.config.exception_handler(te):
+                    return
+
+        # RenPy default exception handler. Returns True
+        # if exception NOT handled.
+        renpy.display.error.report_exception(te)
+
+    def report_traceback(self, name: str, last: bool):
 
         if last:
             return
@@ -491,7 +538,7 @@ class Context(renpy.object.Object):
         """
 
         ps = pyast.Pass(lineno=node.linenumber, col_offset=0)
-        module = pyast.Module(lineno=node.linenumber, col_offset=0, body=[ ps ], type_ignores=[])
+        module = pyast.Module(body=[ps], type_ignores=[])
         code = compile(module, node.filename, 'exec')
         exec(code)
 
@@ -607,28 +654,13 @@ class Context(renpy.object.Object):
 
                     raise
 
-                except Exception as e:
+                except Exception:
                     self.translate_interaction = None
 
-                    exc_info = sys.exc_info()
-                    short, full, traceback_fn = renpy.error.report_exception(e, editor=False)
-
-                    try:
-                        handled = False
-
-                        if self.exception_handler is not None:
-                            self.exception_handler(short, full, traceback_fn)
-                            handled = True
-                        elif renpy.config.exception_handler is not None:
-                            handled = renpy.config.exception_handler(short, full, traceback_fn)
-
-                        if not handled:
-                            if renpy.display.error.report_exception(short, full, traceback_fn):
-                                raise
-                    except renpy.game.CONTROL_EXCEPTIONS as ce:
-                        raise ce
-                    except Exception:
-                        reraise(exc_info[0], exc_info[1], exc_info[2])
+                    # This could raise CONTROL_EXCEPTIONS that are handled
+                    # as if it happened in node execute. Other exceptions
+                    # are chained to original and reported after program exit.
+                    self.handle_exception()
 
                 node = self.next_node
 
@@ -651,8 +683,14 @@ class Context(renpy.object.Object):
                 renpy.store._kwargs = e.kwargs
 
             if self.seen:
-                renpy.game.persistent._seen_ever[self.current] = True # type: ignore
-                renpy.game.seen_session[self.current] = True
+                if renpy.exports.is_seen_allowed():
+                    if renpy.config.hash_seen:
+                        seen_key = renpy.astsupport.hash64(self.current)
+                    else:
+                        seen_key = self.current
+
+                    renpy.game.persistent._seen_ever[seen_key] = True # type: ignore
+                    renpy.game.seen_session[seen_key] = True
 
             renpy.plog(2, "    end {} ({}:{})", type_node_name, this_node.filename, this_node.linenumber)
 
@@ -887,7 +925,7 @@ class Context(renpy.object.Object):
 
     def seen_current(self, ever):
         """
-        Returns a true value if we have finshed the current statement
+        Returns a true value if we have finished the current statement
         at least once before.
 
         @param ever: If True, we're checking to see if we've ever
@@ -903,7 +941,7 @@ class Context(renpy.object.Object):
         else:
             seen = renpy.game.seen_session
 
-        return self.current in seen
+        return (self.current in seen) or (renpy.astsupport.hash64(self.current) in seen)
 
     def do_deferred_rollback(self):
         """

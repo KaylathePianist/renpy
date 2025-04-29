@@ -1,4 +1,4 @@
-﻿# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+﻿# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -36,7 +36,7 @@ init -1150 python in bubble:
 
     # This becomes true when the screen is shown.
     shown = NoRollback()
-    shown.value = False
+    shown.value = renpy.session.get('speechbubble_shown', False)
 
     # The path to the json file the bubble database is stored in.
     db_filename = "bubble.json"
@@ -79,8 +79,15 @@ init -1150 python in bubble:
     frame = None
     thoughtframe = None
 
-    # The layer that retained screens are placed on.
+    # The layer that bubble screen are placed on.
+    layer = "screens"
+
+    # The layer that retained bubble screens are placed on.
     retain_layer = "screens"
+
+    # Statements that cause retained bubbles to be cleared.
+    clear_retain_statements = [ "call screen", "menu",  "say", "say-centered", "say-nvl", "scene", ]
+
 
     class ToggleShown(Action):
         def __call__(self):
@@ -88,6 +95,7 @@ init -1150 python in bubble:
                 return
 
             shown.value = not shown.value
+            renpy.session['speechbubble_shown'] = shown.value
             renpy.restart_interaction()
 
         def get_selected(self):
@@ -136,6 +144,9 @@ init -1150 python in bubble:
 
             if scene_callback not in config.scene_callbacks:
                 config.scene_callbacks.insert(0, scene_callback)
+
+            if statement_callback not in config.statement_callbacks:
+                config.statement_callbacks.insert(0, statement_callback)
 
         def bubble_default_properties(self, image_tag):
             """
@@ -226,6 +237,13 @@ init -1150 python in bubble:
 
             extra_properties.update(properties.get(properties_key, { }))
             extra_properties[area_property] = self.expand_area(tag_properties[image_tag]["area"], properties_key)
+
+            if retain:
+                show_layer = retain_layer
+            else:
+                show_layer = layer
+
+            extra_properties["show_layer"] = show_layer
 
             return super(BubbleCharacter, self).do_show(who, what, multiple=multiple, retain=retain, extra_properties=extra_properties)
 
@@ -323,6 +341,9 @@ init -1150 python in bubble:
         rv = [ ]
 
         for image_tag, tlid in current_dialogue:
+            if image_tag not in tag_properties:
+                continue
+
             property_list = [ ]
 
             property_list.append((
@@ -346,6 +367,12 @@ init -1150 python in bubble:
         what_style="bubble_what",
         _open_db=False)
 
+    def statement_callback(statement):
+
+        if statement in clear_retain_statements:
+            renpy.clear_retain(layer=retain_layer)
+
+
 
 init 1050 python hide:
     import json
@@ -368,6 +395,7 @@ init 1050 python hide:
 
 
 screen _bubble_editor():
+    layer config.interface_layer
     zorder 1050
 
     if bubble.shown.value and not _menu:
@@ -440,8 +468,9 @@ screen _bubble_editor():
 
 
 screen _bubble_window_area_editor(action):
-    modal True
+    layer config.interface_layer
     zorder 1051
+    modal True
 
     areapicker:
         cols bubble.cols

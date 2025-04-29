@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -34,7 +34,7 @@ from renpy.audio.audio import get_channel, get_serial
 from renpy.audio.audio import register_channel, alias_channel
 
 
-def play(filenames, channel="music", loop=None, fadeout=None, synchro_start=True, fadein=0, tight=None, if_changed=False, relative_volume=1.0):
+def play(filenames, channel="music", loop=None, fadeout=None, synchro_start=None, fadein=0, tight=None, if_changed=False, relative_volume=1.0):
     """
     :doc: audio
 
@@ -57,10 +57,12 @@ def play(filenames, channel="music", loop=None, fadeout=None, synchro_start=True
         the channel is paused when the music is played.
 
     `synchro_start`
-        Ren'Py will ensure that all channels of with synchro_start set to true
-        will start playing at exactly the same time. Synchro_start should be
-        true when playing two audio files that are meant to be synchronized
-        with each other.
+        When True, all channels that have synchro_start set to true will start
+        playing at exactly the same time. This may lead to a pause before the
+        channels start playing. This is useful when playing two audio files that
+        are meant to be synchronized with each other.
+
+        If None, this takes its value from the channel.
 
     `fadein`
         This is the number of seconds to fade the music in for, on the
@@ -91,7 +93,7 @@ def play(filenames, channel="music", loop=None, fadeout=None, synchro_start=True
     if filenames is None:
         return
 
-    if isinstance(filenames, basestring):
+    if isinstance(filenames, str):
         filenames = [ filenames ]
 
     if get_pause(channel=channel):
@@ -198,7 +200,7 @@ def queue(filenames, channel="music", loop=None, clear_queue=True, fadein=0, tig
         filenames = [ ]
         loop = False
 
-    if isinstance(filenames, basestring):
+    if isinstance(filenames, str):
         filenames = [ filenames ]
 
     if renpy.config.skipping == "fast":
@@ -259,7 +261,7 @@ def playable(filename, channel="music"):
 
     c = get_channel(channel)
 
-    filename, _, _ = c.split_filename(filename, False)
+    filename, _, _, _ = c.split_filename(filename, False)
 
     return renpy.loader.loadable(filename, directory="audio")
 
@@ -586,6 +588,8 @@ def pump():
 
 def set_mixer(channel, mixer, default=False):
     """
+    :doc: audio
+
     This sets the name of the mixer associated with a given
     channel. By default, there are two mixers, 'sfx' and
     'music'. 'sfx' is on channels 0 to 3, and 'music'
@@ -609,6 +613,8 @@ def set_mixer(channel, mixer, default=False):
 
 def get_all_mixers():
     """
+    :doc: audio
+
     This gets all mixers in use.
     """
 
@@ -617,11 +623,16 @@ def get_all_mixers():
     for i in renpy.audio.audio.all_channels:
         rv.add(i.mixer)
 
+    for i in renpy.config.auto_channels.values():
+        rv.add(i[0])
+
     return list(rv)
 
 
 def channel_defined(channel):
     """
+    :doc: audio
+
     Returns True if the channel exists, or False otherwise.
     """
 
@@ -630,6 +641,44 @@ def channel_defined(channel):
         return True
     except Exception:
         return False
+
+
+def set_audio_filter(channel, audio_filter, replace=False, duration=0.016):
+    """
+    :doc: audio
+
+    Sets the audio filter for sounds about to be queued to `audio_filter`.
+
+    `audio_filter`
+        Must be a an :doc:`audio filter <audio_filters>` or list of
+        audio filters, or None to remove the audio filter.
+
+    `replace`
+        If True, the audio filter replaces the current audio filter immediately,
+        changing currently playing and queued sounds. If False, the audio
+        filter will be used the next time a sound is played or queued.
+
+    `duration`
+        The duration to change from the current to the new filter, in seconds.
+        This prevents a popping sound when changing filters.
+    """
+
+    replace = replace or renpy.game.after_rollback
+
+    if audio_filter is not None:
+        audio_filter = renpy.audio.filter.to_audio_filter(audio_filter)
+
+    try:
+        c = renpy.audio.audio.get_channel(channel)
+        ctx = c.copy_context()
+
+        t = get_serial()
+        ctx.last_changed = t
+
+        c.set_audio_filter(audio_filter, replace=replace, duration=duration)
+    except Exception:
+        if renpy.config.debug_sound:
+            raise
 
 # Music change logic:
 

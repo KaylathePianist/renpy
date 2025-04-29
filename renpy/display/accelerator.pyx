@@ -1,5 +1,5 @@
 #cython: profile=False
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -25,7 +25,9 @@ from __future__ import print_function
 import renpy
 import math
 from renpy.display.matrix cimport Matrix
-from renpy.display.render cimport Render, Matrix2D, render
+from renpy.display.render cimport Render, Matrix2D, render, MATRIX_VIEW, MATRIX_PROJECTION
+
+from renpy.display.displayable import Displayable
 from renpy.display.core import absolute
 
 from sdl2 cimport *
@@ -105,21 +107,35 @@ def get_poi(state):
 # Transform render function
 ################################################################################
 
-cdef Matrix2D IDENTITY
+cdef Matrix IDENTITY
 IDENTITY = renpy.display.render.IDENTITY
 
 
 # The distance to the 1:1 plan, in the current perspective.
 z11 = 0.0
 
-def relative(n, base, limit):
+def relative_for_crop(n, base, limit):
     """
-    A utility function that converts a relative value to an absolute value,
-    using the usual Ren'Py conventions (int and absolute are passed unchanged,
-    while a float is interpreted as a fraction of the limit).
+    A utility function that converts position values to absolute values, using
+    the usual Ren'Py conversion, and then optionally applies the pre-8.3
+    limit_transform_crop setting.
     """
 
-    return min(int(absolute.compute_raw(n, base)), limit)
+    ltc = renpy.config.limit_transform_crop
+
+    if ltc == "only_float" and isinstance(n, (int, absolute)):
+        # before 8.2 / 7.7
+        return n
+
+    rv = int(absolute.compute_raw(n, base))
+
+    if ltc:
+        # 8.2 / 7.7
+        return min(rv, limit)
+
+    else:
+        # 8.3 / 7.8 +
+        return rv
 
 cdef class RenderTransform:
     """
@@ -154,7 +170,7 @@ cdef class RenderTransform:
         self.transform = transform
         self.state = transform.state
 
-        # The original width and heigh given to the render.
+        # The original width and height given to the render.
         self.widtho = 0
         self.heighto = 0
 
@@ -233,6 +249,9 @@ cdef class RenderTransform:
             mr.add_shader("-renpy.texture")
             mr.add_shader("renpy.blur")
             mr.add_uniform("u_renpy_blur_log2", math.log(blur, 2))
+
+        if (blur is not None):
+            mr.add_property("mipmap", True)
 
         self.mr = mr
         return mr
@@ -323,17 +342,17 @@ cdef class RenderTransform:
 
             if crop_relative:
 
-                x = relative(x, width, width)
-                y = relative(y, height, height)
-                w = relative(w, width, width - x)
-                h = relative(h, height, height - y)
+                x = relative_for_crop(x, width, width)
+                y = relative_for_crop(y, height, height)
+                w = relative_for_crop(w, width, width - x)
+                h = relative_for_crop(h, height, height - y)
 
             else:
 
-                x = relative(x, 1, width)
-                y = relative(y, 1, height)
-                w = relative(w, 1, width - x)
-                h = relative(h, 1, height - y)
+                x = relative_for_crop(x, 1, width)
+                y = relative_for_crop(y, 1, height)
+                w = relative_for_crop(w, 1, width - x)
+                h = relative_for_crop(h, 1, height - y)
 
             crop = (x, y, w, h)
 
@@ -343,15 +362,15 @@ cdef class RenderTransform:
             x2, y2 = self.state.corner2
 
             if crop_relative:
-                x1 = relative(x1, width, width)
-                y1 = relative(y1, height, height)
-                x2 = relative(x2, width, width)
-                y2 = relative(y2, height, height)
+                x1 = relative_for_crop(x1, width, width)
+                y1 = relative_for_crop(y1, height, height)
+                x2 = relative_for_crop(x2, width, width)
+                y2 = relative_for_crop(y2, height, height)
             else:
-                x1 = relative(x1, 1, width)
-                y1 = relative(y1, 1, height)
-                x2 = relative(x2, 1, width)
-                y2 = relative(y2, 1, height)
+                x1 = relative_for_crop(x1, 1, width)
+                y1 = relative_for_crop(y1, 1, height)
+                x2 = relative_for_crop(x2, 1, width)
+                y2 = relative_for_crop(y2, 1, height)
 
             if x1 > x2:
                 x3 = x1
@@ -435,6 +454,7 @@ cdef class RenderTransform:
         cdef double rxdy
         cdef double rydx
         cdef double rydy
+        cdef double rzdz
         cdef double x2
         cdef double x3
         cdef double x4
@@ -461,11 +481,12 @@ cdef class RenderTransform:
         fit = self.state.fit
 
         # The reverse matrix used by the zoom and rotate properties.
-        # (This can probably become a Matrix at some point.)
         rxdx = 1
         rxdy = 0
         rydx = 0
         rydy = 1
+
+        rzdz = 1
 
         # Size.
         if (width != 0) and (height != 0):
@@ -556,6 +577,9 @@ cdef class RenderTransform:
             if yzoom < 0:
                 yo += height
 
+        if zoom != 1:
+            rzdz = zoom
+
         # Rotation.
         rotate = state.rotate
         if (rotate is not None) and (not self.perspective):
@@ -616,10 +640,14 @@ cdef class RenderTransform:
         self.xo = xo
 
         # Default case - no transformation matrix.
-        if rxdx == 1 and rxdy == 0 and rydx == 0 and rydy == 1:
+        if rxdx == 1 and rxdy == 0 and rydx == 0 and rydy == 1 and rzdz == 1:
             self.reverse = IDENTITY
         else:
-            self.reverse = Matrix2D(rxdx, rxdy, rydx, rydy)
+            self.reverse = Matrix((
+                rxdx, rxdy, 0,
+                rydx, rydy, 0,
+                0, 0, rzdz,
+            ))
 
     cdef camera_matrix_operations(self):
         """
@@ -662,7 +690,7 @@ cdef class RenderTransform:
             #cameras is rotated in z, y, x order.
             #It is because rotating stage in x, y, z order means rotating a camera in z, y, x order.
             #rotating around z axis isn't rotating around the center of the screen when rotating camera in x, y, z order.
-            v_len = math.sqrt(a**2 + b**2 + c**2) # math.hypot is better in py3.8+
+            v_len = math.hypot(a, b, c)
             if v_len == 0:
                 xpoi = ypoi = zpoi = 0
             else:
@@ -772,7 +800,7 @@ cdef class RenderTransform:
             start_pos = (xplacement + manchorx, yplacement + manchory, state.zpos)
 
             a, b, c = ( float(e - s) for s, e in zip(start_pos, poi) )
-            v_len = math.sqrt(a**2 + b**2 + c**2) # math.hypot is better in py3.8+
+            v_len = math.hypot(a, b, c)
             if v_len == 0:
                 xpoi = ypoi = 0
             else:
@@ -821,15 +849,17 @@ cdef class RenderTransform:
 
         state = self.state
 
-        mt = state.matrixtransform
+        matrix_object = state.matrixtransform
 
-        if mt is not None:
+        if matrix_object is not None:
 
-            if callable(mt):
-                mt = mt(None, 1.0)
+            if callable(matrix_object):
+                matrix_object = matrix_object(None, 1.0)
 
-            if not isinstance(mt, renpy.display.matrix.Matrix):
-                raise Exception("matrixtransform requires a Matrix (got %r)" % (mt,))
+            if not isinstance(matrix_object, renpy.display.matrix.Matrix):
+                raise Exception("matrixtransform requires a Matrix (got %r)" % (matrix_object,))
+
+            mt = matrix_object
 
             if state.matrixanchor is None:
 
@@ -865,7 +895,7 @@ cdef class RenderTransform:
 
             self.reverse = m * self.reverse
 
-    cdef final_render(self, rv):
+    cdef final_render(self, rv, st, at):
         """
         Apply properties to the final render:
 
@@ -922,7 +952,7 @@ cdef class RenderTransform:
         # Shaders and uniforms.
         if state.shader is not None:
 
-            if isinstance(state.shader, basestring):
+            if isinstance(state.shader, str):
                 rv.add_shader(state.shader)
             else:
                 for name in state.shader:
@@ -930,6 +960,9 @@ cdef class RenderTransform:
 
         for name in renpy.display.transform.uniforms:
             value = getattr(state, name, None)
+
+            if isinstance(value, Displayable):
+                value = value.render(rv.width, rv.height, st, at)
 
             if value is not None:
                 rv.add_uniform(name, value)
@@ -1013,11 +1046,6 @@ cdef class RenderTransform:
         # The final render. (Unless we mesh it.)
         rv = Render(self.width, self.height)
 
-        # perspective
-        if perspective:
-            near, z_one_one, far = perspective
-            self.reverse = Matrix.perspective(self.width, self.height, near, z_one_one, far) * self.reverse
-
         # Apply the matrices to the transform.
         transform.reverse = self.reverse
 
@@ -1036,10 +1064,25 @@ cdef class RenderTransform:
         else:
             rv.blit(self.cr, pos)
 
+
+        # perspective
+        if perspective:
+            rv.matrix_kind = MATRIX_VIEW
+
+            prv = Render(self.width, self.height)
+            prv.blit(rv, (0, 0))
+
+            near, z_one_one, far = perspective
+            prv.reverse = Matrix.perspective(self.width, self.height, near, z_one_one, far)
+            prv.forward = prv.reverse.inverse()
+            prv.matrix_kind = MATRIX_PROJECTION
+
+            rv = prv
+
         if mesh and perspective:
             rv = self.make_mesh(rv)
 
-        self.final_render(rv)
+        self.final_render(rv, st, at)
 
         # Clipping.
         rv.xclipping = self.clipping

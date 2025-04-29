@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -64,14 +64,14 @@ exception_info = ''
 style = None
 
 # The set of statements we've seen in this session.
-seen_session = { }
+seen_session: dict[Any, bool] = { }
 
 # The number of entries in persistent._seen_translates that are also in
 # the current game.
-seen_translates_count = 0
+seen_translates_count: int = 0
 
 # The number of new translates we've seen today.
-new_translates_count = 0
+new_translates_count: int = 0
 
 # True if we're in the first interaction after a rollback or rollforward.
 after_rollback = False
@@ -102,7 +102,7 @@ preferences = None # type: Any
 initcode_ast_id = 0
 
 # The build_info.
-build_info = { "info" : { } }
+build_info: dict[str, Any] = { "info" : { } }
 
 
 class ExceptionInfo(object):
@@ -254,13 +254,14 @@ def context(index=-1):
     return contexts[index]
 
 
+
 def invoke_in_new_context(callable, *args, **kwargs): # @ReservedAssignment
     """
     :doc: context
 
     This function creates a new context, and invokes the given Python
     callable (function) in that context. When the function returns
-    or raises an exception, control returns to the the original context.
+    or raises an exception, control returns to the original context.
     It's generally used to call a Python function that needs to display
     information to the player (like a confirmation prompt) from inside
     an event handler.
@@ -273,7 +274,16 @@ def invoke_in_new_context(callable, *args, **kwargs): # @ReservedAssignment
     :func:`renpy.jump`, are handled by the outer context. If you want
     to call Ren'Py script rather than a Python function, use
     :func:`renpy.call_in_new_context` instead.
+
+    This takes an optional  keyword argument:
+
+    `_clear_layers`
+        If True (the default), the layers are cleared before the new
+        interaction starts. If False, the layers are not cleared. If a
+        list, only the layers in the list are cleared.
     """
+
+    clear = kwargs.pop('_clear_layers', True)
 
     restart_context = False
 
@@ -282,7 +292,7 @@ def invoke_in_new_context(callable, *args, **kwargs): # @ReservedAssignment
 
     renpy.display.focus.clear_focus()
 
-    context = renpy.execution.Context(False, contexts[-1], clear=True)
+    context = renpy.execution.Context(False, contexts[-1], clear=clear)
     contexts.append(context)
 
     if renpy.display.interface is not None:
@@ -329,14 +339,23 @@ def call_in_new_context(label, *args, **kwargs):
 
     Use this to begin a second interaction with the user while
     inside an interaction.
+
+    This takes an optional  keyword argument:
+
+    `_clear_layers`
+        If True (the default), the layers are cleared before the new
+        interaction starts. If False, the layers are not cleared. If a
+        list, only the layers in the list are cleared.
     """
+
+    clear = kwargs.pop('_clear_layers', True)
 
     if renpy.game.log.current is not None:
         renpy.game.log.complete()
 
     renpy.display.focus.clear_focus()
 
-    context = renpy.execution.Context(False, contexts[-1], clear=True)
+    context = renpy.execution.Context(False, contexts[-1], clear=clear)
     contexts.append(context)
 
     if renpy.display.interface is not None:

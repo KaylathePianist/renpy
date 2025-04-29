@@ -1,4 +1,4 @@
-﻿# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+﻿# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -79,9 +79,6 @@ init 1100 python:
     else:
         config.has_sync = None
 
-    if renpy.emscripten and PY2:
-        config.has_sync = None
-
 init -1100 python in _sync:
 
     # Do not participate in saves.
@@ -149,10 +146,7 @@ init -1100 python in _sync:
         for _ in range(10000):
             hashed = hashlib.sha256(hashed).digest()
 
-        if PY2:
-            return hashed.encode("hex")
-        else:
-            return hashed.hex()
+        return hashed.hex()
 
 
     def key_and_hash(sync_id):
@@ -175,10 +169,7 @@ init -1100 python in _sync:
         for _ in range(10000):
             hashed = hashlib.sha256(hashed).digest()
 
-        if PY2:
-            return key, hashed.encode("hex")
-        else:
-            return key, hashed.hex()
+        return key, hashed.hex()
 
     def verbose_error(e):
         renpy.display.log.write("Sync error:")
@@ -250,7 +241,7 @@ init -1100 python in _sync:
             if i.startswith("quick-") and i != "quick-1":
                 continue
 
-            files.append((location.mtime(i), i + "-LT1.save"))
+            files.append((location.mtime(i), i + renpy.savegame_suffix))
 
         files.sort(reverse=True)
 
@@ -260,8 +251,6 @@ init -1100 python in _sync:
 
             sd = renpy.config.save_directory
             if sd:
-                if PY2:
-                    sd = sd.encode("utf-8")
                 zf.writestr("save_directory", sd)
 
             persistent = location.path("persistent")[1]
@@ -388,11 +377,7 @@ init -1100 python in _sync:
 
                 zi = zf.getinfo(fn)
 
-                if PY2:
-                    epoch = datetime.datetime.utcfromtimestamp(0)
-                    timestamp = (datetime.datetime(*zi.date_time) - epoch).total_seconds()
-                else:
-                    timestamp = datetime.datetime(*zi.date_time).timestamp()
+                timestamp = datetime.datetime(*zi.date_time).timestamp()
 
                 data = zf.read(fn)
 
@@ -413,10 +398,7 @@ init -1100 python in _sync:
                 os.rename(nfn, fn)
 
         renpy.loadsave.location.scan()
-
-        if renpy.emscripten:
-            import emscripten
-            emscripten.syncfs()
+        renpy.savelocation.syncfs()
 
         return True
 
@@ -425,6 +407,7 @@ init -1100:
     screen sync_confirm():
         style_prefix "sync"
         modal True
+        layer config.interface_layer
         zorder 100
 
         frame:
@@ -456,6 +439,7 @@ init -1100:
     screen sync_prompt(prompt):
         style_prefix "sync"
         modal True
+        layer config.interface_layer
         zorder 100
 
         frame:
@@ -496,6 +480,7 @@ init -1100:
     screen sync_success(sync_id):
         style_prefix "sync"
         modal True
+        layer config.interface_layer
         zorder 100
 
         frame:
@@ -533,6 +518,7 @@ init -1100:
     screen sync_error(message):
         style_prefix "sync"
         modal True
+        layer config.interface_layer
         zorder 100
 
         frame:
@@ -559,7 +545,3 @@ init -1100:
 
         ## Right-click and escape answer "no".
         key "game_menu" action Return(False)
-
-
-    style sync_overlay is empty:
-        background "gui/overlay/confirm.png"

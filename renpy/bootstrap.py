@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -19,15 +19,11 @@
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-from __future__ import division, absolute_import, with_statement, print_function, unicode_literals
-from renpy.compat import PY2, basestring, bchr, bord, chr, open, pystr, range, round, str, tobytes, unicode # *
-
-from typing import Optional
-
 import os
 import sys
 import subprocess
 import io
+import textwrap
 
 # Encoding and sys.stderr/stdout handling ######################################
 
@@ -36,12 +32,6 @@ FSENCODING = sys.getfilesystemencoding() or "utf-8"
 # Sets the default encoding to utf-8.
 old_stdout = sys.stdout
 old_stderr = sys.stderr
-
-if PY2:
-    sys_executable = sys.executable
-    reload(sys) # type: ignore
-    sys.setdefaultencoding("utf-8") # type: ignore
-    sys.executable = sys_executable
 
 def _setdefaultencoding(name):
     """
@@ -197,6 +187,19 @@ def get_alternate_base(basedir, always=False):
     return altbase
 
 
+def excepthook(type, value, traceback):
+    # In rare cases, the exception value can be None,
+    # In which case, we create a new exception object.
+    # We can't just instantiate it, but because error handling
+    # code uses only BaseException fields, we can create an empty instance.
+    if value is None:
+        value = BaseException.__new__(type)
+        value.__traceback__ = traceback
+
+    te = renpy.error.TracebackException(value)
+    te.format(renpy.error.MaybeColoredExceptionPrintContext(sys.stderr))
+
+
 def bootstrap(renpy_base):
 
     global renpy
@@ -275,6 +278,9 @@ def bootstrap(renpy_base):
         if basedir.endswith("Contents/Resources/autorun"):
             renpy.macapp = True
 
+    # Set up Ren'Py specific exception handling.
+    sys.excepthook = excepthook
+
     # Check that we have installed pygame properly. This also deals with
     # weird cases on Windows and Linux where we can't import modules. (On
     # windows ";" is a directory separator in PATH, so if it's in a parent
@@ -284,15 +290,15 @@ def bootstrap(renpy_base):
         import pygame_sdl2
         if not ("pygame" in sys.modules):
             pygame_sdl2.import_as_pygame()
-    except Exception:
-        print("""\
-Could not import pygame_sdl2. Please ensure that this program has been built
-and unpacked properly. Also, make sure that the directories containing
-this program do not contain : or ; in their names.
+    except Exception as e:
+        e.add_note(textwrap.dedent(f"""\
+        Could not import pygame_sdl2. Please ensure that this program has been built
+        and unpacked properly. Also, make sure that the directories containing
+        this program do not contain : or ; in their names.
 
-You may be using a system install of python. Please run {0}.sh,
-{0}.exe, or {0}.app instead.
-""".format(name), file=sys.stderr)
+        You may be using a system install of python. Please run {name}.sh,
+        {name}.exe, or {name}.app instead.
+        """))
 
         raise
 
@@ -305,15 +311,15 @@ You may be using a system install of python. Please run {0}.sh,
 
     # Ditto for the Ren'Py module.
     try:
-        import _renpy
-    except Exception:
-        print("""\
-Could not import _renpy. Please ensure that this program has been built
-and unpacked properly.
+        import _renpy  # type: ignore
+    except Exception as e:
+        e.add_note(textwrap.dedent(f"""\
+        Could not import _renpy. Please ensure that this program has been built
+        and unpacked properly.
 
-You may be using a system install of python. Please run {0}.sh,
-{0}.exe, or {0}.app instead.
-""".format(name), file=sys.stderr)
+        You may be using a system install of python. Please run {name}.sh,
+        {name}.exe, or {name}.app instead.
+        """))
         raise
 
     # Load the rest of Ren'Py.
@@ -360,9 +366,6 @@ You may be using a system install of python. Please run {0}.sh,
 
                 exit_status = 0
 
-            except KeyboardInterrupt:
-                raise
-
             except renpy.game.UtterRestartException:
 
                 # On an UtterRestart, reload Ren'Py.
@@ -377,16 +380,15 @@ You may be using a system install of python. Please run {0}.sh,
                     if hasattr(sys, "renpy_executable"):
                         subprocess.Popen([sys.renpy_executable] + sys.argv[1:]) # type: ignore
                     else:
-                        if PY2:
-                            subprocess.Popen([sys.executable, "-EO"] + sys.argv)
-                        else:
-                            subprocess.Popen([sys.executable] + sys.argv)
+                        subprocess.Popen([sys.executable] + sys.argv)
 
             except renpy.game.ParseErrorException:
                 pass
 
             except Exception as e:
-                renpy.error.report_exception(e)
+                # If exception was raised outside of Ren'Py execution context,
+                # or context was unable to handle it, report it here.
+                renpy.error.report_exception(e, editor=True)
 
         sys.exit(exit_status)
 
@@ -404,6 +406,9 @@ You may be using a system install of python. Please run {0}.sh,
 
         renpy.audio.audio.quit()
 
+        for cb in renpy.config.python_exit_callbacks:
+            cb()
+
         # Prevent subprocess from throwing errors while trying to run it's
         # __del__ method during shutdown.
         if not renpy.emscripten:
@@ -415,6 +420,7 @@ You may be using a system install of python. Please run {0}.sh,
             import android
             android.activity.finishAndRemoveTask()
 
-            # Avoid running Python shutdown, which can cause more harm than good. (#5280)
+            # Avoid running Python shutdown, which can cause more harm than good.
+            # For more details, see https://github.com/renpy/renpy/issues/5280.
             System = autoclass("java.lang.System")
             System.exit(0)

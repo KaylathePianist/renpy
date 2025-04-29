@@ -1,4 +1,4 @@
-# Copyright 2004-2024 Tom Rothamel <pytom@bishoujo.us>
+# Copyright 2004-2025 Tom Rothamel <pytom@bishoujo.us>
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation files
@@ -186,6 +186,7 @@ Matrix = renpy.display.matrix.Matrix # @UndefinedVariable
 Live2D = renpy.gl2.live2d.Live2D
 
 Model = renpy.display.model.Model
+GLTFModel = renpy.gl2.assimp.GLTFModel
 
 # Currying things.
 Alpha = renpy.curry.curry(renpy.display.layout.Alpha)
@@ -333,13 +334,15 @@ def At(d, *args):
             repeat
 
         image birds = At("birds.png", birds_transform)
-        """
+    """
 
     rv = renpy.easy.displayable(d)
 
     for i in args:
 
         if isinstance(i, renpy.display.motion.Transform):
+            # fails to set the child if the transform has a **kwargs parameter and no child parameter
+            # intended corner-case
             rv = i(child=rv)
         else:
             rv = i(rv)
